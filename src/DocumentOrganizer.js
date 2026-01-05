@@ -168,9 +168,9 @@ export default function DocumentOrganizer() {
       const file = files[i];
       const formData = new FormData();
       formData.append('file', file);
-
+      //http://localhost:8000
       try {
-        const response = await fetch('https://published-mom-julia-actor.trycloudflare.com/api/ocr', {
+        const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/ocr', {
           method: 'POST',
           body: formData,
         });
@@ -220,7 +220,7 @@ export default function DocumentOrganizer() {
       setAiLogs([...logs]);
       
       try {
-        const response = await fetch('https://published-mom-julia-actor.trycloudflare.com/api/classify', {
+        const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/classify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -307,7 +307,7 @@ export default function DocumentOrganizer() {
       const metadataBlob = new Blob([JSON.stringify(metadataObj)], { type: 'application/json' });
       formData.append('metadata', metadataBlob, 'metadata.json');
       
-      const response = await fetch('https://published-mom-julia-actor.trycloudflare.com/api/generate-zip', {
+      const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/generate-zip', {
         method: 'POST',
         body: formData,
       });
