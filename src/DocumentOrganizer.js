@@ -111,7 +111,11 @@ export default function DocumentOrganizer() {
   };
 
   const handleFileUpload = (e) => {
-    setFiles(Array.from(e.target.files));
+    setFiles([...files, ...Array.from(e.target.files)]);
+  };
+
+  const removeFile = (indexToRemove) => {
+    setFiles(files.filter((_, index) => index !== indexToRemove));
   };
   
   const getFullPath = (id) => {
@@ -168,7 +172,7 @@ export default function DocumentOrganizer() {
       const file = files[i];
       const formData = new FormData();
       formData.append('file', file);
-      //http://localhost:8000
+      //http://localhost:8000 ce ces dat nzaj
       try {
         const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/ocr', {
           method: 'POST',
@@ -490,6 +494,13 @@ export default function DocumentOrganizer() {
                           <p className="text-sm font-medium text-gray-800 truncate">{file.name}</p>
                           <p className="text-xs text-gray-500">{(file.size / 1024).toFixed(1)} KB</p>
                         </div>
+                        <button
+                          onClick={() => removeFile(idx)}
+                          className="p-1 hover:bg-red-100 rounded transition-colors"
+                          title="Odstrani"
+                        >
+                          <Trash2 size={16} className="text-red-600" />
+                        </button>
                       </div>
                     ))}
                   </div>
