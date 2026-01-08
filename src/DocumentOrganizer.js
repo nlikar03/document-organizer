@@ -67,6 +67,10 @@ export default function DocumentOrganizer() {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
 
+  const [password, setPassword] = useState('');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authError, setAuthError] = useState('');
+
   const toggleFolder = (id) => {
     setFolders(folders.map(f => {
       if (f.id === id) return { ...f, expanded: !f.expanded };
@@ -132,6 +136,18 @@ export default function DocumentOrganizer() {
   const removeFile = (indexToRemove) => {
     setFiles(files.filter((_, index) => index !== indexToRemove));
   };
+
+
+  const handlePasswordSubmit = (e) => {
+    e.preventDefault();
+    // Just set authenticated, backend will verify on each request
+    if (password.trim()) {
+      setIsAuthenticated(true);
+      setAuthError('');
+    } else {
+      setAuthError('Prosim vnesite geslo');
+    }
+  };
   
   const getFullPath = (id) => {
     const parts = id.split(".");
@@ -191,6 +207,9 @@ export default function DocumentOrganizer() {
       try {
         const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/ocr', {
           method: 'POST',
+          headers: {
+            'X-Password': password
+          },
           body: formData,
         });
 
@@ -241,7 +260,10 @@ export default function DocumentOrganizer() {
       try {
         const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/classify', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Password': password
+          },
           body: JSON.stringify({
             text: result.extractedText,
             structure: folders
@@ -332,6 +354,9 @@ export default function DocumentOrganizer() {
       
       const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/generate-zip', {
         method: 'POST',
+        headers: {
+          'X-Password': password
+        },
         body: formData,
       });
       
@@ -364,7 +389,10 @@ export default function DocumentOrganizer() {
     try {
       const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/generate-excel', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'X-Password': password
+        },
         body: JSON.stringify({
           results: finalResults,
           structure: folders
@@ -449,6 +477,39 @@ export default function DocumentOrganizer() {
       </div>
     );
   };
+
+
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-8">
+        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
+          <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">🔒 Dostop Zaščiten</h1>
+          <p className="text-gray-600 mb-6 text-center">Vnesite geslo za dostop do sistema</p>
+          
+          <form onSubmit={handlePasswordSubmit}>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Vnesite geslo"
+              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:outline-none focus:border-indigo-500 mb-4"
+            />
+            
+            {authError && (
+              <p className="text-red-600 text-sm mb-4">{authError}</p>
+            )}
+            
+            <button
+              type="submit"
+              className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors"
+            >
+              Vstopi
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
@@ -551,7 +612,7 @@ export default function DocumentOrganizer() {
                   </div>
                 </div>
               )}
-              
+
               {files.length > 0 && (
                 <div className="mb-6">
                   <h3 className="font-bold text-gray-800 mb-3 text-lg">Izbrane Datoteke ({files.length}):</h3>
