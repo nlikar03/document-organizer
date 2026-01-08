@@ -198,12 +198,12 @@ export default function DocumentOrganizer() {
     setCurrentStep(3);
 
     const results = [];
-    const BATCH_SIZE = 5; // Process 5 files at a time
     
-    const processFile = async (file) => {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
       const formData = new FormData();
       formData.append('file', file);
-      
+      //http://localhost:8000 ce ces dat nzaj
       try {
         const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/ocr', {
           method: 'POST',
@@ -216,29 +216,22 @@ export default function DocumentOrganizer() {
         if (!response.ok) throw new Error('OCR Failed');
 
         const data = await response.json();
-        return {
+        results.push({
           fileName: data.fileName,
           extractedText: data.text || "No text found.",
           originalFile: file
-        };
+        });
       } catch (error) {
         console.error(error);
-        return {
+        results.push({
           fileName: file.name,
           extractedText: "Error during OCR processing.",
           originalFile: file
-        };
+        });
       }
-    };
-
-    // Process files in batches
-    for (let i = 0; i < files.length; i += BATCH_SIZE) {
-      const batch = files.slice(i, i + BATCH_SIZE);
-      const batchResults = await Promise.all(batch.map(processFile));
       
-      results.push(...batchResults);
       setOcrResults([...results]);
-      setOcrProgress((results.length / files.length) * 100);
+      setOcrProgress(((i + 1) / files.length) * 100);
     }
 
     setOcrProcessing(false);
