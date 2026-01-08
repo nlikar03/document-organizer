@@ -483,7 +483,7 @@ export default function DocumentOrganizer() {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-8">
         <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
-          <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">🔒 Dostop Zaščiten</h1>
+          <h1 className="text-3xl font-bold text-gray-800 mb-2 text-center">Dostop Zaščiten</h1>
           <p className="text-gray-600 mb-6 text-center">Vnesite geslo za dostop do sistema</p>
           
           <form onSubmit={handlePasswordSubmit}>
@@ -844,7 +844,7 @@ export default function DocumentOrganizer() {
         </div>
 
         <div className="mt-8 text-center text-gray-600 text-sm">
-          <p>💡 Sistem uporablja OCR tehnologijo in AI za avtomatsko kategorizacijo dokumentov</p>
+          <p>Spletna stran za pomoč pri kategorizaciji DZO dokumentov</p>
         </div>
       </div>
     </div>
