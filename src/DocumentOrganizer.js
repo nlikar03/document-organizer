@@ -138,14 +138,32 @@ export default function DocumentOrganizer() {
   };
 
 
-  const handlePasswordSubmit = (e) => {
+  const handlePasswordSubmit = async (e) => {
     e.preventDefault();
-    // Just set authenticated, backend will verify on each request
-    if (password.trim()) {
-      setIsAuthenticated(true);
-      setAuthError('');
-    } else {
+    
+    if (!password.trim()) {
       setAuthError('Prosim vnesite geslo');
+      return;
+    }
+    
+    try {
+      // Test password with a lightweight API call
+      const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/verify-password', {
+        method: 'POST',
+        headers: {
+          'X-Password': password
+        }
+      });
+      
+      if (response.ok) {
+        setIsAuthenticated(true);
+        setAuthError('');
+      } else {
+        setAuthError('Napačno geslo');
+        setPassword('');
+      }
+    } catch (error) {
+      setAuthError('Napaka pri preverjanju gesla');
     }
   };
   
