@@ -532,9 +532,26 @@ export default function DocumentOrganizer() {
                   </span>
                   <span className="text-gray-600 text-lg"> ali povlecite datoteke</span>
                 </label>
-                <p className="text-sm text-gray-500 mt-3">PDF, PNG, JPG, JPEG do 10MB</p>
+                <p className="text-sm text-gray-500 mt-3">PDF, PNG, JPG, JPEG do 150MB</p>
               </div>
-
+              {files.length > 0 && (
+                <div className="mt-4 flex items-center justify-center gap-6 text-sm">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-700">Število datotek:</span>
+                    <span className={`font-bold ${files.length > 150 ? 'text-red-600' : 'text-indigo-600'}`}>
+                      {files.length} / 150
+                    </span>
+                  </div>
+                  <div className="h-4 w-px bg-gray-300"></div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-gray-700">Skupna velikost:</span>
+                    <span className={`font-bold ${(files.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024) > 150 ? 'text-red-600' : 'text-indigo-600'}`}>
+                      {(files.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024).toFixed(1)} / 150 MB
+                    </span>
+                  </div>
+                </div>
+              )}
+              
               {files.length > 0 && (
                 <div className="mb-6">
                   <h3 className="font-bold text-gray-800 mb-3 text-lg">Izbrane Datoteke ({files.length}):</h3>
