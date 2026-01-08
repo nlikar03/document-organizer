@@ -112,7 +112,21 @@ export default function DocumentOrganizer() {
   };
 
   const handleFileUpload = (e) => {
-    setFiles([...files, ...Array.from(e.target.files)]);
+    const newFiles = Array.from(e.target.files);
+    const allFiles = [...files, ...newFiles];
+    const totalSize = allFiles.reduce((sum, f) => sum + f.size, 0);
+    
+    if (allFiles.length > 150) {
+      alert('Maksimalno število datotek je 150 na enkrat.');
+      return;
+    }
+    
+    if (totalSize > 150 * 1024 * 1024) {
+      alert('Skupna velikost datotek presega 150MB.');
+      return;
+    }
+    
+    setFiles(allFiles);
   };
 
   const removeFile = (indexToRemove) => {
