@@ -65,6 +65,7 @@ export default function DocumentOrganizer() {
   const [finalResults, setFinalResults] = useState([]);
   
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
 
   const toggleFolder = (id) => {
     setFolders(folders.map(f => {
@@ -235,8 +236,8 @@ export default function DocumentOrganizer() {
 
         if (!response.ok) throw new Error('AI Failed');
 
-        const suggestedFolder = await response.json();
-        const folderId = suggestedFolder.id;
+        const aiResponse = await response.json();
+        const folderId = aiResponse.suggestedFolder.id;
         
         // Increment file count for this folder
         folderCounts[folderId] = (folderCounts[folderId] || 0) + 1;
@@ -252,11 +253,15 @@ export default function DocumentOrganizer() {
         });
 
         results.push({
-          ...result,
-          suggestedFolder: suggestedFolder,
-          fileNumber: fileNumber,
-          docCode: docCode
-        });
+        ...result,
+        suggestedFolder: aiResponse.suggestedFolder,
+        fileNumber: fileNumber,
+        docCode: docCode,
+        documentTitle: aiResponse.documentTitle || "",
+        issuer: aiResponse.issuer || "",
+        documentNumber: aiResponse.documentNumber || "",
+        date: aiResponse.date || ""
+      });
       } catch (error) {
         logs.push({ 
           time: new Date().toLocaleTimeString('sl-SI'), 
@@ -336,6 +341,39 @@ export default function DocumentOrganizer() {
       alert(`Prenos ZIP datoteke ni uspel: ${error.message}`);
     } finally {
       setIsDownloading(false);
+    }
+  };
+
+  const downloadExcel = async () => {
+    setIsDownloadingExcel(true);
+    
+    try {
+      const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/generate-excel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          results: finalResults,
+          structure: folders
+        }),
+      });
+      
+      if (!response.ok) throw new Error('Excel generation failed');
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'DZO_Dokumenti_Seznam.xlsx';
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+    } catch (error) {
+      console.error('Excel download failed:', error);
+      alert(`Prenos Excel datoteke ni uspel: ${error.message}`);
+    } finally {
+      setIsDownloadingExcel(false);
     }
   };
 
@@ -679,6 +717,24 @@ export default function DocumentOrganizer() {
                       <>
                         <Download size={24} />
                         Prenesi ZIP z Organiziranimi Dokumenti
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={downloadExcel}
+                    disabled={isDownloadingExcel}
+                    className="w-full bg-green-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-green-700 disabled:bg-gray-400 transition-colors text-lg flex items-center justify-center gap-2"
+                  >
+                    {isDownloadingExcel ? (
+                      <>
+                        <Loader2 className="animate-spin" size={24} />
+                        Priprava Excel datoteke...
+                      </>
+                    ) : (
+                      <>
+                        <FileText size={24} />
+                        Prenesi Excel Seznam Dokumentov
                       </>
                     )}
                   </button>
