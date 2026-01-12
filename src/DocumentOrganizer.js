@@ -70,6 +70,8 @@ export default function DocumentOrganizer() {
   const [password, setPassword] = useState('');
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authError, setAuthError] = useState('');
+  const [viewingOcrText, setViewingOcrText] = useState(null);
+
 
   const toggleFolder = (id) => {
     setFolders(folders.map(f => {
@@ -706,6 +708,12 @@ export default function DocumentOrganizer() {
                     <div className="flex items-center gap-3 mb-3">
                       <CheckCircle size={20} className="text-green-500" />
                       <span className="font-semibold text-gray-800">{result.fileName}</span>
+                      <button
+                        onClick={() => setViewingOcrText(result)}
+                        className="ml-auto text-sm bg-indigo-100 text-indigo-700 px-3 py-1 rounded hover:bg-indigo-200 transition-colors font-medium"
+                      >
+                        Poglej celotno besedilo
+                      </button>
                     </div>
                     <div className="bg-gray-50 p-3 rounded">
                       <p className="text-xs font-semibold text-gray-600 mb-1">Izvlečeno besedilo:</p>
@@ -723,6 +731,26 @@ export default function DocumentOrganizer() {
                   <Brain size={24} />
                   Začni AI Kategorizacijo →
                 </button>
+              )}
+              {viewingOcrText && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                  <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col">
+                    <div className="p-6 border-b flex items-center justify-between">
+                      <h3 className="text-xl font-bold text-gray-800">{viewingOcrText.fileName}</h3>
+                      <button
+                        onClick={() => setViewingOcrText(null)}
+                        className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="p-6 overflow-y-auto flex-1">
+                      <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono bg-gray-50 p-4 rounded">
+                        {viewingOcrText.extractedText}
+                      </pre>
+                    </div>
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -771,6 +799,31 @@ export default function DocumentOrganizer() {
                         <CheckCircle size={20} className="text-green-500" />
                       </div>
                     </div>
+                    
+                    {/* Add metadata section */}
+                    {(result.issuer || result.date || result.documentNumber) && (
+                      <div className="mb-3 bg-blue-50 p-3 rounded-lg space-y-1">
+                        {result.issuer && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-gray-600">Izdajatelj:</span>
+                            <span className="text-sm text-gray-800">{result.issuer}</span>
+                          </div>
+                        )}
+                        {result.date && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-gray-600">Datum:</span>
+                            <span className="text-sm text-gray-800">{result.date}</span>
+                          </div>
+                        )}
+                        {result.documentNumber && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-semibold text-gray-600">Št. dokumenta:</span>
+                            <span className="text-sm text-gray-800">{result.documentNumber}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
                     <div className="flex items-center gap-3 bg-gradient-to-r from-purple-50 to-indigo-50 p-3 rounded-lg">
                       <span className="text-purple-600 text-2xl">📁</span>
                       <div className="flex-1">
