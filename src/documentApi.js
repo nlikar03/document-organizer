@@ -54,16 +54,17 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
   const logs = [];
   const folderCounts = {};
 
-  logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: 'AI proces začet (GPT-5-mini)...' });
+  logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: 'AI proces začet (GPT-4o-mini) - paralelno procesiranje...' });
   onLog(logs);
 
+  // Process in batches of 5
   const BATCH_SIZE = 5;
-  for (let i = 0; i < ocrResults.length; i+=BATCH_SIZE) {
-    const result = ocrResults[i, i+BATCH_SIZE];
+  for (let i = 0; i < ocrResults.length; i += BATCH_SIZE) {
+    const batch = ocrResults.slice(i, i + BATCH_SIZE);
     
-    logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: `Analiziram: ${result.fileName}` });
+    logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: `Analiziram batch ${Math.floor(i/BATCH_SIZE) + 1}...` });
     onLog(logs);
-    
+
     try {
       const response = await fetch(`${API_BASE}/api/classify-batch`, {
         method: 'POST',
@@ -73,7 +74,7 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
         },
         body: JSON.stringify({
           texts: batch.map(r => r.extractedText),
-          text: result.extractedText,
+          fileNames: batch.map(r => r.fileName),
           structure: folders
         }),
       });
@@ -81,7 +82,8 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
       if (!response.ok) throw new Error('AI Batch Failed');
 
       const batchResponse = await response.json();
-
+      
+      // Process batch results
       for (let j = 0; j < batchResponse.results.length; j++) {
         const item = batchResponse.results[j];
         const originalResult = batch[j];
