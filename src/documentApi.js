@@ -57,69 +57,84 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
   logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: 'AI proces začet (GPT-5-mini)...' });
   onLog(logs);
 
-  for (let i = 0; i < ocrResults.length; i++) {
-    const result = ocrResults[i];
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < ocrResults.length; i+=BATCH_SIZE) {
+    const result = ocrResults[i, i+BATCH_SIZE];
     
     logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: `Analiziram: ${result.fileName}` });
     onLog(logs);
     
     try {
-      const response = await fetch(`${API_BASE}/api/classify`, {
+      const response = await fetch(`${API_BASE}/api/classify-batch`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'X-Password': password
         },
         body: JSON.stringify({
+          texts: batch.map(r => r.extractedText),
           text: result.extractedText,
           structure: folders
         }),
       });
 
-      if (!response.ok) throw new Error('AI Failed');
+      if (!response.ok) throw new Error('AI Batch Failed');
 
-      const aiResponse = await response.json();
-      const folderId = aiResponse.suggestedFolder.id;
-      
-      folderCounts[folderId] = (folderCounts[folderId] || 0) + 1;
-      const fileNumber = folderCounts[folderId];
-      
-      const docCode = generateDocCode(folderId, folders) + '.' + String(fileNumber).padStart(3, '0');
-      
-      logs.push({ 
-        time: new Date().toLocaleTimeString('sl-SI'), 
-        message: `✓ ${result.fileName} → ${docCode}`,
-        success: true 
-      });
+      const batchResponse = await response.json();
 
-      results.push({
-        ...result,
-        suggestedFolder: aiResponse.suggestedFolder,
-        fileNumber: fileNumber,
-        docCode: docCode,
-        documentTitle: aiResponse.documentTitle || "",
-        issuer: aiResponse.issuer || "",
-        documentNumber: aiResponse.documentNumber || "",
-        date: aiResponse.date || ""
-      });
+      for (let j = 0; j < batchResponse.results.length; j++) {
+        const item = batchResponse.results[j];
+        const originalResult = batch[j];
+        const folderId = item.classification.suggestedFolder.id;
+        
+        folderCounts[folderId] = (folderCounts[folderId] || 0) + 1;
+        const fileNumber = folderCounts[folderId];
+        
+        const docCode = generateDocCode(folderId, folders) + '.' + String(fileNumber).padStart(3, '0');
+        
+        logs.push({ 
+          time: new Date().toLocaleTimeString('sl-SI'), 
+          message: `✓ ${item.fileName} → ${docCode}`,
+          success: true 
+        });
+
+        results.push({
+          ...originalResult,
+          suggestedFolder: item.classification.suggestedFolder,
+          fileNumber: fileNumber,
+          docCode: docCode,
+          documentTitle: item.classification.documentTitle || "",
+          issuer: item.classification.issuer || "",
+          documentNumber: item.classification.documentNumber || "",
+          date: item.classification.date || ""
+        });
+      }
+
+      onLog([...logs]);
+      onResult([...results]);
+      onProgress(((i + batch.length) / ocrResults.length) * 100);
+
     } catch (error) {
-      logs.push({ 
-        time: new Date().toLocaleTimeString('sl-SI'), 
-        message: `❌ Napaka pri ${result.fileName}`,
-        success: false 
-      });
+      // Handle batch error - mark all items in batch as failed
+      for (const result of batch) {
+        logs.push({ 
+          time: new Date().toLocaleTimeString('sl-SI'), 
+          message: `❌ Napaka pri ${result.fileName}`,
+          success: false 
+        });
+        
+        results.push({
+          ...result,
+          suggestedFolder: { id: folders[0].id, name: folders[0].name, fullPath: folders[0].name },
+          fileNumber: 1,
+          docCode: '0.001'
+        });
+      }
       
-      results.push({
-        ...result,
-        suggestedFolder: { id: folders[0].id, name: folders[0].name, fullPath: folders[0].name },
-        fileNumber: 1,
-        docCode: '0.001'
-      });
+      onLog([...logs]);
+      onResult([...results]);
+      onProgress(((i + batch.length) / ocrResults.length) * 100);
     }
-
-    onLog(logs);
-    onResult(results);
-    onProgress(((i + 1) / ocrResults.length) * 100);
   }
 
   logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: '✓ AI proces zaključen!', success: true });

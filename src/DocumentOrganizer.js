@@ -470,7 +470,7 @@ export default function DocumentOrganizer() {
                     ) : (
                       <>
                         <Download size={24} />
-                        Prenesi ZIP z Organiziranimi Dokumenti
+                        Prenesi ZIP z Organiziranimi Dokumenti (Lahko traja 5min+)
                       </>
                     )}
                   </button>
@@ -497,7 +497,7 @@ export default function DocumentOrganizer() {
                     onClick={resetAll}
                     className="w-full bg-gray-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-gray-700 transition-colors text-lg"
                   >
-                    Začni Znova
+                    ⟳ Začni Znova
                   </button>
                 </div>
               )}
