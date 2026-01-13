@@ -1,456 +1,49 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, ChevronRight, ChevronDown, Loader2, Edit2, Scan, Brain, Download } from 'lucide-react';
-
-const defaultStructure = [
-  { id: '0', name: '0 PODATKI O POGODBI', level: 0, expanded: false },
-  { id: '1', name: 'I. GRADBENA DELA', level: 0, expanded: false },
-  { id: '1.1', name: '01 BETONSKA DELA', level: 1, expanded: false },
-  { id: '1.2', name: '02 ZIDARSKA DELA', level: 1, expanded: false },
-  { id: '2', name: 'II. PRIPRAVLJALNA DELA', level: 0, expanded: false },
-  { id: '3', name: 'III. INŠTALACIJE', level: 0, expanded: false },
-  { id: '3.1', name: '01 STROJNE INSTALACIJE', level: 1, expanded: false },
-  { id: '3.1.1', name: '01 OGREVANJE IN HLAJENJE', level: 2, expanded: false },
-  { id: '3.1.2', name: '02 ŠPRINKLER INŠTALACIJA', level: 2, expanded: false },
-  { id: '3.1.3', name: '03 VODOVOD', level: 2, expanded: false },
-  { id: '3.1.4', name: '04 PREZRAČEVANJE', level: 2, expanded: false },
-  { id: '3.1.5', name: '05 PLINI', level: 2, expanded: false },
-  { id: '3.1.6', name: '06 CEVNA POŠTA', level: 2, expanded: false },
-  { id: '3.2', name: '02 ELEKTRO INSTALACIJE', level: 1, expanded: false },
-  { id: '3.2.1', name: '01 INŠTALACIJSKI MATERIAL', level: 2, expanded: false },
-  { id: '3.2.2', name: '02 SVETILKE SPLOŠNE RAZSVETLJAVE', level: 2, expanded: false },
-  { id: '3.2.3', name: '03 SVETILKE VARNOSTNE RAZSVETLJAVE', level: 2, expanded: false },
-  { id: '3.2.4', name: '04 RAZDELILNIKI', level: 2, expanded: false },
-  { id: '4', name: 'IV. ZAKLJUČNA GRADBENA DELA', level: 0, expanded: false },
-  { id: '4.1', name: '01 OKNA', level: 1, expanded: false },
-  { id: '4.2', name: '02 OPREMA', level: 1, expanded: false },
-  { id: '4.2.1', name: '01 MEDICINSKA OPREMA', level: 2, expanded: false },
-  { id: '4.2.2', name: '02 POHIŠTVENA OPREMA', level: 2, expanded: false },
-  { id: '4.2.3', name: '03 TIPSKA OPREMA', level: 2, expanded: false },
-  { id: '4.3', name: '03 SLIKOPLESKARSKA DELA', level: 1, expanded: false },
-  { id: '4.4', name: '04 SUHOMONTAŽNA DELA', level: 1, expanded: false },
-  { id: '4.5', name: '05 TLAKARSKA DELA', level: 1, expanded: false },
-  { id: '4.6', name: '06 VRATA', level: 1, expanded: false },
-  { id: '4.7', name: '07 KLJUČAVNIČARSKA DELA', level: 1, expanded: false },
-  { id: '5', name: 'V. KROVSTVO IN DRUGA SPEC. GRADBENA DELA', level: 0, expanded: false },
-  { id: '6', name: 'VI. IZKAZI IN POROČILA', level: 0, expanded: false },
-  { id: '6.1', name: '01 GRADBENIŠTVO', level: 1, expanded: false },
-  { id: '6.2', name: '02 ELEKTRO INŠTALACIJE', level: 1, expanded: false },
-  { id: '6.3', name: '03 STROJNE INŠTALACIJE', level: 1, expanded: false },
-  { id: '6.4', name: '04 MEDICINSKA OPREMA', level: 1, expanded: false },
-  { id: '6.5', name: '05 ČISTI PROSTORI', level: 1, expanded: false },
-  { id: '7', name: 'VII. NAVODILA ZA UPORABO', level: 0, expanded: false },
-  { id: '7.1', name: '01 GRADBENIŠTVO', level: 1, expanded: false },
-  { id: '7.2', name: '02 ELEKTRO INŠTALACIJE', level: 1, expanded: false },
-  { id: '7.3', name: '03 STROJNE INŠTALACIJE', level: 1, expanded: false },
-  { id: '7.4', name: '04 OPREMA', level: 1, expanded: false },
-  { id: '7.4.1', name: '01 MEDICINSKA OPREMA', level: 2, expanded: false },
-  { id: '7.4.2', name: '02 POHIŠTVENA OPREMA', level: 2, expanded: false },
-  { id: '7.4.3', name: '03 TIPSKA OPREMA', level: 2, expanded: false },
-];
+import { useDocumentState } from './documentState';
+import { getFullPath, isChildVisible } from './documentUtils';
 
 export default function DocumentOrganizer() {
-  const [folders, setFolders] = useState(defaultStructure);
-  const [files, setFiles] = useState([]);
-  const [currentStep, setCurrentStep] = useState(1);
-  const [editingId, setEditingId] = useState(null);
-  const [editingName, setEditingName] = useState('');
-  
-  const [ocrProgress, setOcrProgress] = useState(0);
-  const [ocrProcessing, setOcrProcessing] = useState(false);
-  const [ocrResults, setOcrResults] = useState([]);
-  
-  const [aiProgress, setAiProgress] = useState(0);
-  const [aiProcessing, setAiProcessing] = useState(false);
-  const [aiLogs, setAiLogs] = useState([]);
-  const [finalResults, setFinalResults] = useState([]);
-  
-  const [isDownloading, setIsDownloading] = useState(false);
-  const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
-
-  const [password, setPassword] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authError, setAuthError] = useState('');
-  const [viewingOcrText, setViewingOcrText] = useState(null);
-
-
-  const toggleFolder = (id) => {
-    setFolders(folders.map(f => {
-      if (f.id === id) return { ...f, expanded: !f.expanded };
-      if (f.id.startsWith(id + '.')) return { ...f, expanded: false };
-      return f;
-    }));
-  };
-
-  const addFolder = (parentId, level) => {
-    const newId = parentId === 'root' ? Date.now().toString() : `${parentId}.${Date.now()}`;
-    const newFolder = { id: newId, name: 'Nova Mapa', level: level, expanded: false };
-    
-    if (parentId === 'root') {
-      setFolders([...folders, newFolder]);
-    } else {
-      const parentIndex = folders.findIndex(f => f.id === parentId);
-      const newFolders = [...folders];
-      let insertIndex = parentIndex + 1;
-      while (insertIndex < newFolders.length && newFolders[insertIndex].id.startsWith(parentId + '.')) {
-        insertIndex++;
-      }
-      newFolders.splice(insertIndex, 0, newFolder);
-      setFolders(newFolders);
-    }
-    
-    setEditingId(newId);
-    setEditingName('Nova Mapa');
-  };
-
-  const deleteFolder = (id) => {
-    setFolders(folders.filter(f => f.id !== id && !f.id.startsWith(id + '.')));
-  };
-
-  const startEdit = (id, name) => {
-    setEditingId(id);
-    setEditingName(name);
-  };
-
-  const saveEdit = (id) => {
-    setFolders(folders.map(f => f.id === id ? { ...f, name: editingName } : f));
-    setEditingId(null);
-    setEditingName('');
-  };
-
-  const handleFileUpload = (e) => {
-    const newFiles = Array.from(e.target.files);
-    const allFiles = [...files, ...newFiles];
-    const totalSize = allFiles.reduce((sum, f) => sum + f.size, 0);
-    
-    if (allFiles.length > 150) {
-      alert('Maksimalno število datotek je 150 na enkrat.');
-      return;
-    }
-    
-    if (totalSize > 150 * 1024 * 1024) {
-      alert('Skupna velikost datotek presega 150MB.');
-      return;
-    }
-    
-    setFiles(allFiles);
-  };
-
-  const removeFile = (indexToRemove) => {
-    setFiles(files.filter((_, index) => index !== indexToRemove));
-  };
-
-
-  const handlePasswordSubmit = async (e) => {
-    e.preventDefault();
-    
-    if (!password.trim()) {
-      setAuthError('Prosim vnesite geslo');
-      return;
-    }
-    
-    try {
-      // Test password with a lightweight API call
-      const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/verify-password', {
-        method: 'POST',
-        headers: {
-          'X-Password': password
-        }
-      });
-      
-      if (response.ok) {
-        setIsAuthenticated(true);
-        setAuthError('');
-      } else {
-        setAuthError('Napačno geslo');
-        setPassword('');
-      }
-    } catch (error) {
-      setAuthError('Napaka pri preverjanju gesla');
-    }
-  };
-  
-  const getFullPath = (id) => {
-    const parts = id.split(".");
-    let path = [];
-    for (let i = 0; i < parts.length; i++) {
-      const partialId = parts.slice(0, i + 1).join(".");
-      const folder = folders.find(f => f.id === partialId);
-      if (folder) path.push(folder.name);
-    }
-    return path.join(" → ");
-  };
-  
-  // Generate document code like III.01.04.027
-  const generateDocCode = (folderId) => {
-    const parts = folderId.split('.');
-    const codes = parts.map((_, idx) => {
-      const currentId = parts.slice(0, idx + 1).join('.');
-      const f = folders.find(x => x.id === currentId);
-      if (!f) return '';
-      
-      // For level 0, extract Roman numerals (I, II, III, IV, etc.)
-      if (idx === 0) {
-        const romanMatch = f.name.match(/^([IVXLCDM]+)\./);
-        if (romanMatch) return romanMatch[1];
-      }
-      
-      // For other levels, extract the leading number (01, 02, 03, etc.)
-      const match = f.name.match(/^(\d+)/);
-      return match ? match[1] : '';
-    }).filter(Boolean);
-    
-    return codes.join('.');
-  };
-
-  const isChildVisible = (folder) => {
-    if (folder.level === 0) return true;
-    const parentId = folder.id.split('.').slice(0, -1).join('.');
-    const parent = folders.find(f => f.id === parentId);
-    if (!parent) return true;
-    if (!parent.expanded) return false;
-    return isChildVisible(parent);
-  };
-
-  const startOCRProcessing = async () => {
-    setOcrProcessing(true);
-    setOcrProgress(0);
-    setOcrResults([]);
-    setCurrentStep(3);
-
-    const results = [];
-    
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const formData = new FormData();
-      formData.append('file', file);
-      //http://localhost:8000 ce ces dat nzaj
-      try {
-        const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/ocr', {
-          method: 'POST',
-          headers: {
-            'X-Password': password
-          },
-          body: formData,
-        });
-
-        if (!response.ok) throw new Error('OCR Failed');
-
-        const data = await response.json();
-        results.push({
-          fileName: data.fileName,
-          extractedText: data.text || "No text found.",
-          originalFile: file
-        });
-      } catch (error) {
-        console.error(error);
-        results.push({
-          fileName: file.name,
-          extractedText: "Error during OCR processing.",
-          originalFile: file
-        });
-      }
-      
-      setOcrResults([...results]);
-      setOcrProgress(((i + 1) / files.length) * 100);
-    }
-
-    setOcrProcessing(false);
-  };
-
-  const startAIProcessing = async () => {
-    setAiProcessing(true);
-    setAiProgress(0);
-    setAiLogs([]);
-    setFinalResults([]);
-    setCurrentStep(4);
-
-    const results = [];
-    const logs = [];
-    const folderCounts = {};
-
-    logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: 'AI proces začet (GPT-5-mini)...' });
-    setAiLogs([...logs]);
-
-    for (let i = 0; i < ocrResults.length; i++) {
-      const result = ocrResults[i];
-      
-      logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: `Analiziram: ${result.fileName}` });
-      setAiLogs([...logs]);
-      
-      try {
-        const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/classify', {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            'X-Password': password
-          },
-          body: JSON.stringify({
-            text: result.extractedText,
-            structure: folders
-          }),
-        });
-
-        if (!response.ok) throw new Error('AI Failed');
-
-        const aiResponse = await response.json();
-        const folderId = aiResponse.suggestedFolder.id;
-        
-        // Increment file count for this folder
-        folderCounts[folderId] = (folderCounts[folderId] || 0) + 1;
-        const fileNumber = folderCounts[folderId];
-        
-        // Generate document code (e.g., III.2.01.027)
-        const docCode = generateDocCode(folderId) + '.' + String(fileNumber).padStart(3, '0');
-        
-        logs.push({ 
-          time: new Date().toLocaleTimeString('sl-SI'), 
-          message: `✓ ${result.fileName} → ${docCode}`,
-          success: true 
-        });
-
-        results.push({
-        ...result,
-        suggestedFolder: aiResponse.suggestedFolder,
-        fileNumber: fileNumber,
-        docCode: docCode,
-        documentTitle: aiResponse.documentTitle || "",
-        issuer: aiResponse.issuer || "",
-        documentNumber: aiResponse.documentNumber || "",
-        date: aiResponse.date || ""
-      });
-      } catch (error) {
-        logs.push({ 
-          time: new Date().toLocaleTimeString('sl-SI'), 
-          message: `❌ Napaka pri ${result.fileName}`,
-          success: false 
-        });
-        
-        results.push({
-          ...result,
-          suggestedFolder: { id: folders[0].id, name: folders[0].name, fullPath: folders[0].name },
-          fileNumber: 1,
-          docCode: '0.001'
-        });
-      }
-
-      setAiLogs([...logs]);
-      setFinalResults([...results]);
-      setAiProgress(((i + 1) / ocrResults.length) * 100);
-    }
-
-    logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: '✓ AI proces zaključen!', success: true });
-    setAiLogs([...logs]);
-    setAiProcessing(false);
-  };
-
-  const downloadZip = async () => {
-    setIsDownloading(true);
-    
-    try {
-      const formData = new FormData();
-      
-      // Add all original files
-      finalResults.forEach(result => {
-        formData.append('files', result.originalFile);
-      });
-      
-      // Add metadata as a JSON blob/file
-      const fileMapping = {};
-      finalResults.forEach(result => {
-        fileMapping[result.fileName] = {
-          folderId: result.suggestedFolder.id,
-          fileNumber: result.fileNumber,
-          docCode: result.docCode
-        };
-      });
-      
-      const metadataObj = {
-        structure: folders,
-        fileMapping: fileMapping
-      };
-      
-      const metadataBlob = new Blob([JSON.stringify(metadataObj)], { type: 'application/json' });
-      formData.append('metadata', metadataBlob, 'metadata.json');
-      
-      const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/generate-zip', {
-        method: 'POST',
-        headers: {
-          'X-Password': password
-        },
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`ZIP generation failed: ${errorText}`);
-      }
-      
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'DZO_Dokumenti.zip';
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
-    } catch (error) {
-      console.error('Download failed:', error);
-      alert(`Prenos ZIP datoteke ni uspel: ${error.message}`);
-    } finally {
-      setIsDownloading(false);
-    }
-  };
-
-  const downloadExcel = async () => {
-    setIsDownloadingExcel(true);
-    
-    try {
-      const response = await fetch('https://document-organizer-backend-0aje.onrender.com/api/generate-excel', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'X-Password': password
-        },
-        body: JSON.stringify({
-          results: finalResults,
-          structure: folders
-        }),
-      });
-      
-      if (!response.ok) throw new Error('Excel generation failed');
-      
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'DZO_Dokumenti_Seznam.xlsx';
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      
-    } catch (error) {
-      console.error('Excel download failed:', error);
-      alert(`Prenos Excel datoteke ni uspel: ${error.message}`);
-    } finally {
-      setIsDownloadingExcel(false);
-    }
-  };
-
-  const resetAll = () => {
-    setFiles([]);
-    setOcrResults([]);
-    setFinalResults([]);
-    setAiLogs([]);
-    setOcrProgress(0);
-    setAiProgress(0);
-    setCurrentStep(1);
-  };
+  const {
+    folders,
+    files,
+    currentStep,
+    editingId,
+    editingName,
+    ocrProgress,
+    ocrProcessing,
+    ocrResults,
+    aiProgress,
+    aiProcessing,
+    aiLogs,
+    finalResults,
+    isDownloading,
+    isDownloadingExcel,
+    password,
+    isAuthenticated,
+    authError,
+    viewingOcrText,
+    setEditingName,
+    setPassword,
+    setCurrentStep,
+    setViewingOcrText,
+    toggleFolder,
+    addFolder,
+    deleteFolder,
+    startEdit,
+    saveEdit,
+    handleFileUpload,
+    removeFile,
+    handlePasswordSubmit,
+    startOCRProcessing,
+    startAIProcessing,
+    handleDownloadZip,
+    handleDownloadExcel,
+    resetAll,
+  } = useDocumentState();
 
   const renderFolder = (folder) => {
-    if (!isChildVisible(folder)) return null;
+    if (!isChildVisible(folder, folders)) return null;
 
     const hasChildren = folders.some(f => 
       f.id.startsWith(folder.id + '.') && f.id.split('.').length === folder.id.split('.').length + 1
@@ -497,7 +90,6 @@ export default function DocumentOrganizer() {
       </div>
     );
   };
-
 
   if (!isAuthenticated) {
     return (
@@ -800,7 +392,6 @@ export default function DocumentOrganizer() {
                       </div>
                     </div>
                     
-                    {/* Add metadata section */}
                     {(result.issuer || result.date || result.documentNumber) && (
                       <div className="mb-3 bg-blue-50 p-3 rounded-lg space-y-1">
                         {result.issuer && (
@@ -828,7 +419,7 @@ export default function DocumentOrganizer() {
                       <span className="text-purple-600 text-2xl">📁</span>
                       <div className="flex-1">
                         <p className="text-xs text-gray-600 font-semibold">Predlagana kategorija:</p>
-                        <p className="text-sm font-bold text-purple-700">{getFullPath(result.suggestedFolder.id)}</p>
+                        <p className="text-sm font-bold text-purple-700">{getFullPath(result.suggestedFolder.id, folders)}</p>
                         <p className="text-xs text-gray-500 mt-1">Številka datoteke: #{result.fileNumber}</p>
                       </div>
                     </div>
@@ -850,7 +441,7 @@ export default function DocumentOrganizer() {
                       {(() => {
                         const summary = {};
                         finalResults.forEach(r => {
-                          const folderPath = getFullPath(r.suggestedFolder.id);
+                          const folderPath = getFullPath(r.suggestedFolder.id, folders);
                           summary[folderPath] = (summary[folderPath] || 0) + 1;
                         });
                         return Object.entries(summary).map(([folder, count]) => (
@@ -867,7 +458,7 @@ export default function DocumentOrganizer() {
                   </div>
 
                   <button
-                    onClick={downloadZip}
+                    onClick={handleDownloadZip}
                     disabled={isDownloading}
                     className="w-full bg-blue-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-blue-700 disabled:bg-gray-400 transition-colors text-lg flex items-center justify-center gap-2"
                   >
@@ -885,7 +476,7 @@ export default function DocumentOrganizer() {
                   </button>
 
                   <button
-                    onClick={downloadExcel}
+                    onClick={handleDownloadExcel}
                     disabled={isDownloadingExcel}
                     className="w-full bg-green-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-green-700 disabled:bg-gray-400 transition-colors text-lg flex items-center justify-center gap-2"
                   >
@@ -906,7 +497,7 @@ export default function DocumentOrganizer() {
                     onClick={resetAll}
                     className="w-full bg-gray-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-gray-700 transition-colors text-lg"
                   >
-                    🔄 Začni Znova
+                    Začni Znova
                   </button>
                 </div>
               )}
