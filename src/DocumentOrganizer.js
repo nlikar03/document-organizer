@@ -39,6 +39,8 @@ export default function DocumentOrganizer() {
     startAIProcessing,
     handleDownloadZip,
     handleDownloadExcel,
+    hardReset,
+    processedFilesCount,
     resetAll,
   } = useDocumentState();
 
@@ -126,12 +128,35 @@ export default function DocumentOrganizer() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
       <div className="max-w-6xl mx-auto">
-        <div className="bg-white rounded-lg shadow-xl p-8">
+        <div className="bg-white rounded-lg shadow-xl p-8 relative">
+          {currentStep < 4 && (
+            <button
+              onClick={hardReset}
+              className="absolute top-6 right-6 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors font-medium flex items-center gap-2 text-sm"
+            >
+              <Trash2 size={16} />
+              Začni Znova
+            </button>
+          )}
           <h1 className="text-4xl font-bold text-gray-800 mb-2 flex items-center gap-3">
             <FolderTree className="text-indigo-600" size={40} />
             Organizator Dokumentov DZO
           </h1>
           <p className="text-gray-600 mb-8">AI klasifikacija dokumentov z OCR tehnologijo</p>
+
+          {processedFilesCount > 0 && (
+            <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-blue-800 font-semibold">Skupno že procesiranih datotek:</p>
+                  <p className="text-2xl font-bold text-blue-900">{processedFilesCount}</p>
+                </div>
+                <div className="text-blue-600">
+                  <CheckCircle size={40} />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Progress Indicator */}
           <div className="flex items-center justify-between mb-8 pb-6 border-b">

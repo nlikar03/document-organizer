@@ -49,15 +49,14 @@ export const processOCR = async (files, password, onProgress, onResult) => {
   return results;
 };
 
-export const processAI = async (ocrResults, folders, password, onProgress, onLog, onResult) => {
+export const processAI = async (ocrResults, folders, password, onProgress, onLog, onResult, existingFolderCounts = {}) => {
   const results = [];
   const logs = [];
-  const folderCounts = {};
+  const folderCounts = { ...existingFolderCounts }; // Start with existing counts
 
-  logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: 'AI proces začet (GPT-4o-mini) - paralelno procesiranje...' });
+  logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: 'AI proces začet (GPT-5-mini) - paralelno procesiranje...' });
   onLog(logs);
 
-  // Process in batches of 5
   const BATCH_SIZE = 5;
   for (let i = 0; i < ocrResults.length; i += BATCH_SIZE) {
     const batch = ocrResults.slice(i, i + BATCH_SIZE);

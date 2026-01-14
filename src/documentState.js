@@ -3,20 +3,47 @@ import { defaultStructure } from './documentUtils';
 import { verifyPassword, processOCR, processAI, downloadZip, downloadExcel } from './documentApi';
 
 export const useDocumentState = () => {
-  const [folders, setFolders] = useState(defaultStructure);
+  const [folders, setFolders] = useState(() => {
+    const saved = localStorage.getItem('folders');
+    return saved ? JSON.parse(saved) : defaultStructure;
+  });
+  
   const [files, setFiles] = useState([]);
-  const [currentStep, setCurrentStep] = useState(1);
+  
+  const [currentStep, setCurrentStep] = useState(() => {
+    const saved = localStorage.getItem('currentStep');
+    return saved ? parseInt(saved) : 1;
+  });
+  
   const [editingId, setEditingId] = useState(null);
   const [editingName, setEditingName] = useState('');
   
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrProcessing, setOcrProcessing] = useState(false);
-  const [ocrResults, setOcrResults] = useState([]);
+  
+  const [ocrResults, setOcrResults] = useState(() => {
+    const saved = localStorage.getItem('ocrResults');
+    return saved ? JSON.parse(saved) : [];
+  });
   
   const [aiProgress, setAiProgress] = useState(0);
   const [aiProcessing, setAiProcessing] = useState(false);
   const [aiLogs, setAiLogs] = useState([]);
-  const [finalResults, setFinalResults] = useState([]);
+  
+  const [finalResults, setFinalResults] = useState(() => {
+    const saved = localStorage.getItem('finalResults');
+    return saved ? JSON.parse(saved) : [];
+  });
+  
+  const [processedFilesCount, setProcessedFilesCount] = useState(() => {
+    const saved = localStorage.getItem('processedFilesCount');
+    return saved ? parseInt(saved) : 0;
+  });
+  
+  const [folderCounts, setFolderCounts] = useState(() => {
+    const saved = localStorage.getItem('folderCounts');
+    return saved ? JSON.parse(saved) : {};
+  });
   
   const [isDownloading, setIsDownloading] = useState(false);
   const [isDownloadingExcel, setIsDownloadingExcel] = useState(false);
@@ -26,9 +53,45 @@ export const useDocumentState = () => {
   const [authError, setAuthError] = useState('');
   const [viewingOcrText, setViewingOcrText] = useState(null);
 
+  // Wrapper functions to save to localStorage
+  const setFoldersWithSave = (newFolders) => {
+    const updated = typeof newFolders === 'function' ? newFolders(folders) : newFolders;
+    setFolders(updated);
+    localStorage.setItem('folders', JSON.stringify(updated));
+  };
+
+  const setCurrentStepWithSave = (step) => {
+    setCurrentStep(step);
+    localStorage.setItem('currentStep', step.toString());
+  };
+
+  const setOcrResultsWithSave = (results) => {
+    const updated = typeof results === 'function' ? results(ocrResults) : results;
+    setOcrResults(updated);
+    localStorage.setItem('ocrResults', JSON.stringify(updated));
+  };
+
+  const setFinalResultsWithSave = (results) => {
+    const updated = typeof results === 'function' ? results(finalResults) : results;
+    setFinalResults(updated);
+    localStorage.setItem('finalResults', JSON.stringify(updated));
+  };
+
+  const setFolderCountsWithSave = (counts) => {
+    const updated = typeof counts === 'function' ? counts(folderCounts) : counts;
+    setFolderCounts(updated);
+    localStorage.setItem('folderCounts', JSON.stringify(updated));
+  };
+
+  const setProcessedFilesCountWithSave = (count) => {
+    const updated = typeof count === 'function' ? count(processedFilesCount) : count;
+    setProcessedFilesCount(updated);
+    localStorage.setItem('processedFilesCount', updated.toString());
+  };
+
   // Folder management
   const toggleFolder = (id) => {
-    setFolders(folders.map(f => {
+    setFoldersWithSave(folders.map(f => {
       if (f.id === id) return { ...f, expanded: !f.expanded };
       if (f.id.startsWith(id + '.')) return { ...f, expanded: false };
       return f;
@@ -40,7 +103,7 @@ export const useDocumentState = () => {
     const newFolder = { id: newId, name: 'Nova Mapa', level: level, expanded: false };
     
     if (parentId === 'root') {
-      setFolders([...folders, newFolder]);
+      setFoldersWithSave([...folders, newFolder]);
     } else {
       const parentIndex = folders.findIndex(f => f.id === parentId);
       const newFolders = [...folders];
@@ -49,7 +112,7 @@ export const useDocumentState = () => {
         insertIndex++;
       }
       newFolders.splice(insertIndex, 0, newFolder);
-      setFolders(newFolders);
+      setFoldersWithSave(newFolders);
     }
     
     setEditingId(newId);
@@ -57,7 +120,7 @@ export const useDocumentState = () => {
   };
 
   const deleteFolder = (id) => {
-    setFolders(folders.filter(f => f.id !== id && !f.id.startsWith(id + '.')));
+    setFoldersWithSave(folders.filter(f => f.id !== id && !f.id.startsWith(id + '.')));
   };
 
   const startEdit = (id, name) => {
@@ -66,7 +129,7 @@ export const useDocumentState = () => {
   };
 
   const saveEdit = (id) => {
-    setFolders(folders.map(f => f.id === id ? { ...f, name: editingName } : f));
+    setFoldersWithSave(folders.map(f => f.id === id ? { ...f, name: editingName } : f));
     setEditingId(null);
     setEditingName('');
   };
@@ -121,14 +184,14 @@ export const useDocumentState = () => {
   const startOCRProcessing = async () => {
     setOcrProcessing(true);
     setOcrProgress(0);
-    setOcrResults([]);
-    setCurrentStep(3);
+    setOcrResultsWithSave([]);
+    setCurrentStepWithSave(3);
 
     await processOCR(
       files, 
       password, 
       setOcrProgress, 
-      setOcrResults
+      setOcrResultsWithSave
     );
 
     setOcrProcessing(false);
@@ -138,17 +201,35 @@ export const useDocumentState = () => {
     setAiProcessing(true);
     setAiProgress(0);
     setAiLogs([]);
-    setFinalResults([]);
-    setCurrentStep(4);
+    setFinalResultsWithSave([]);
+    setCurrentStepWithSave(4);
 
-    await processAI(
+    // Pass current folder counts and processed files count to AI processing
+    const results = await processAI(
       ocrResults, 
       folders, 
       password, 
       setAiProgress, 
-      setAiLogs, 
-      setFinalResults
+      setAiLogs,
+      (newResults) => {
+        setFinalResultsWithSave(newResults);
+      },
+      folderCounts // Pass existing folder counts
     );
+
+    // Update folder counts after processing
+    const newFolderCounts = { ...folderCounts };
+    results.forEach(result => {
+      const folderId = result.suggestedFolder.id;
+      if (!newFolderCounts[folderId]) {
+        newFolderCounts[folderId] = 0;
+      }
+      newFolderCounts[folderId]++;
+    });
+    setFolderCountsWithSave(newFolderCounts);
+
+    // Update total processed files count
+    setProcessedFilesCountWithSave(processedFilesCount + results.length);
 
     setAiProcessing(false);
   };
@@ -178,6 +259,7 @@ export const useDocumentState = () => {
     }
   };
 
+  // Reset functions
   const resetAll = () => {
     setFiles([]);
     setOcrResults([]);
@@ -185,7 +267,28 @@ export const useDocumentState = () => {
     setAiLogs([]);
     setOcrProgress(0);
     setAiProgress(0);
+    setCurrentStepWithSave(1);
+    
+    // Clear some localStorage but keep folder counts and structure
+    localStorage.removeItem('ocrResults');
+    localStorage.removeItem('finalResults');
+    localStorage.removeItem('currentStep');
+  };
+
+  const hardReset = () => {
+    setFiles([]);
+    setOcrResults([]);
+    setFinalResults([]);
+    setAiLogs([]);
+    setOcrProgress(0);
+    setAiProgress(0);
     setCurrentStep(1);
+    setProcessedFilesCount(0);
+    setFolderCounts({});
+    setFoldersWithSave(defaultStructure);
+    
+    // Clear all localStorage
+    localStorage.clear();
   };
 
   return {
@@ -208,11 +311,13 @@ export const useDocumentState = () => {
     isAuthenticated,
     authError,
     viewingOcrText,
+    processedFilesCount,
+    folderCounts,
     
     // Setters
     setEditingName,
     setPassword,
-    setCurrentStep,
+    setCurrentStep: setCurrentStepWithSave,
     setViewingOcrText,
     
     // Handlers
@@ -229,5 +334,6 @@ export const useDocumentState = () => {
     handleDownloadZip,
     handleDownloadExcel,
     resetAll,
+    hardReset,
   };
 };
