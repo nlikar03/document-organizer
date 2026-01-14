@@ -144,6 +144,9 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
   return results;
 };
 
+
+
+
 export const downloadZip = async (finalResults, folders, password) => {
   const formData = new FormData();
   

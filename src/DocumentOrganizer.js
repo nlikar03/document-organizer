@@ -45,8 +45,12 @@ export default function DocumentOrganizer() {
     resetAll,
   } = useDocumentState();
 
+
+  //modals
   const [showProcessedFiles, setShowProcessedFiles] = React.useState(false);
   const [showNoteModal, setShowNoteModal] = React.useState(false);
+  const [showResetConfirm, setShowResetConfirm] = React.useState(false);
+
 
   const renderFolder = (folder) => {
     if (!isChildVisible(folder, folders)) return null;
@@ -165,7 +169,7 @@ export default function DocumentOrganizer() {
             </div>
           )}
 
-
+          
           {showProcessedFiles && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col">
@@ -222,7 +226,15 @@ export default function DocumentOrganizer() {
                     </li>
                     <li className="flex gap-2">
                       <span className="text-amber-500 font-bold">•</span>
-                      <span>Zaradi omejitev si spletna stran shranjuje napredek. Proces se lahko začne znova z novimi datotekami.</span>
+                      <span>Zaradi omejitev si spletna stran shranjuje napredek. </span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-amber-500 font-bold">•</span>
+                      <span>Proces se lahko začne znova z novimi datotekami.</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-amber-500 font-bold">•</span>
+                      <span>Zip in Excel prenos deluje samo na koncu prenosa.</span>
                     </li>
                   </ul>
                   <button
@@ -232,6 +244,41 @@ export default function DocumentOrganizer() {
                     Razumem
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {showResetConfirm && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+                
+                <div className="p-6 border-b">
+                  <h3 className="text-xl font-bold text-gray-800">
+                    Ste prepričani?
+                  </h3>
+                  <p className="text-gray-600 mt-2">
+                    Vsi trenutni podatki bodo trajno izbrisani. Spletna stran si bo samo zapomnila številčenje datotek.
+                  </p>
+                </div>
+
+                <div className="p-6 flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowResetConfirm(false)}
+                    className="px-4 py-2 bg-gray-200 rounded-lg font-semibold hover:bg-gray-300"
+                  >
+                    Prekliči
+                  </button>
+                  <button
+                    onClick={() => {
+                      resetAll();
+                      setShowResetConfirm(false);
+                    }}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
+                  >
+                    Da, izbriši
+                  </button>
+                </div>
+
               </div>
             </div>
           )}
@@ -605,11 +652,11 @@ export default function DocumentOrganizer() {
                   </button>
 
                   <button
-                    onClick={resetAll}
-                    className="w-full bg-gray-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-gray-700 transition-colors text-lg"
-                  >
-                    ⟳ Začni od Začetka
-                  </button>
+                      onClick={() => setShowResetConfirm(true)}
+                      className="w-full bg-gray-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-gray-700 transition-colors text-lg"
+                    >
+                      ⟳ Začni od Začetka
+                    </button>
                 </div>
               )}
             </div>
