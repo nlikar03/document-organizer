@@ -48,7 +48,6 @@ export default function DocumentOrganizer() {
 
   //modals
   const [showProcessedFiles, setShowProcessedFiles] = React.useState(false);
-  const [showNoteModal, setShowNoteModal] = React.useState(false);
   const [showResetConfirm, setShowResetConfirm] = React.useState(false);
 
 
@@ -246,50 +245,6 @@ export default function DocumentOrganizer() {
             </div>
           )}
 
-
-          {showNoteModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
-              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
-                <div className="bg-amber-500 p-4 flex items-center justify-between text-white">
-                  <h3 className="font-bold flex items-center gap-2 text-lg">
-                    ⚠️ Pomembne Omejitve
-                  </h3>
-                  <button onClick={() => setShowNoteModal(false)} className="hover:text-amber-100 text-2xl font-bold">×</button>
-                </div>
-                <div className="p-6">
-                  <ul className="space-y-3 text-gray-700">
-                    <li className="flex gap-2">
-                      <span className="text-amber-500 font-bold">•</span>
-                      <span>Maksimalna velikost posamezne datoteke je <b>150MB</b>.</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="text-amber-500 font-bold">•</span>
-                      <span>Hkrati lahko naložite do <b>150 datotek</b> za optimalno delovanje.</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="text-amber-500 font-bold">•</span>
-                      <span>Zaradi omejitev si spletna stran shranjuje napredek. </span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="text-amber-500 font-bold">•</span>
-                      <span>Proces se lahko začne znova z novimi datotekami.</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="text-amber-500 font-bold">•</span>
-                      <span>Zip in Excel prenos deluje samo na koncu prenosa.</span>
-                    </li>
-                  </ul>
-                  <button
-                    onClick={() => setShowNoteModal(false)}
-                    className="w-full mt-6 bg-gray-800 text-white py-2 rounded-lg font-semibold hover:bg-gray-900 transition-colors"
-                  >
-                    Razumem
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
           {showResetConfirm && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
               <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
@@ -381,12 +336,7 @@ export default function DocumentOrganizer() {
             <div>
               <div className="flex items-baseline gap-3 mb-4">
                 <h2 className="text-2xl font-bold text-gray-800">Naloži Dokumente</h2>
-                <button 
-                  onClick={() => setShowNoteModal(true)}
-                  className="px-3 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full hover:bg-amber-200 transition-colors border border-amber-200"
-                >
-                  Opomba
-                </button>
+                
               </div>
               
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-indigo-500 transition-colors mb-6">
@@ -656,7 +606,6 @@ export default function DocumentOrganizer() {
                       })()}
                     </div>
                   </div>
-
 
                   <button
                       onClick={() => setShowResetConfirm(true)}
