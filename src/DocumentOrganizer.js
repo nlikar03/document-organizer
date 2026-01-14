@@ -299,7 +299,7 @@ export default function DocumentOrganizer() {
                     Ste prepričani?
                   </h3>
                   <p className="text-gray-600 mt-2">
-                    Vsi trenutni podatki bodo trajno izbrisani. Spletna stran si bo samo zapomnila številčenje datotek.
+                    Trenutni proces bo ponastavljen. Vse že procesirane datoteke ostanejo shranjene za prenos.
                   </p>
                 </div>
 
@@ -317,7 +317,7 @@ export default function DocumentOrganizer() {
                     }}
                     className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
                   >
-                    Da, izbriši
+                    Da, nadaljuj
                   </button>
                 </div>
 
@@ -657,41 +657,6 @@ export default function DocumentOrganizer() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={handleDownloadZip}
-                    disabled={isDownloading}
-                    className="w-full bg-blue-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-blue-700 disabled:bg-gray-400 transition-colors text-lg flex items-center justify-center gap-2"
-                  >
-                    {isDownloading ? (
-                      <>
-                        <Loader2 className="animate-spin" size={24} />
-                        Priprava ZIP datoteke...
-                      </>
-                    ) : (
-                      <>
-                        <Download size={24} />
-                        Prenesi ZIP z Organiziranimi Dokumenti (Lahko traja 5min+)
-                      </>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={handleDownloadExcel}
-                    disabled={isDownloadingExcel}
-                    className="w-full bg-green-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-green-700 disabled:bg-gray-400 transition-colors text-lg flex items-center justify-center gap-2"
-                  >
-                    {isDownloadingExcel ? (
-                      <>
-                        <Loader2 className="animate-spin" size={24} />
-                        Priprava Excel datoteke...
-                      </>
-                    ) : (
-                      <>
-                        <FileText size={24} />
-                        Prenesi Excel Seznam Dokumentov
-                      </>
-                    )}
-                  </button>
 
                   <button
                       onClick={() => setShowResetConfirm(true)}

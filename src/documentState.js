@@ -213,7 +213,6 @@ export const useDocumentState = () => {
     setAiProcessing(true);
     setAiProgress(0);
     setAiLogs([]);
-    setFinalResultsWithSave([]);
     setCurrentStepWithSave(4);
 
     // Pass current folder counts and processed files count to AI processing
@@ -224,7 +223,8 @@ export const useDocumentState = () => {
       setAiProgress, 
       setAiLogs,
       (newResults) => {
-        setFinalResultsWithSave(newResults);
+        // Append to existing finalResults instead of replacing
+        setFinalResultsWithSave(prev => [...prev, ...newResults]);
       },
       folderCounts // Pass existing folder counts
     );
@@ -240,13 +240,12 @@ export const useDocumentState = () => {
     });
     setFolderCountsWithSave(newFolderCounts);
 
-    // Update total processed files count
+    // Append to processed files list
     setProcessedFilesWithSave(prev => [
       ...prev,
       ...results.map(r => r.fileName)
     ]);
     setProcessedFilesCountWithSave(processedFilesCount + results.length);
-
 
     setAiProcessing(false);
   };
@@ -282,19 +281,16 @@ export const useDocumentState = () => {
   const resetAll = () => {
     setFiles([]);
     setOcrResults([]);
-    setFinalResults([]);
     setAiLogs([]);
     setOcrProgress(0);
     setAiProgress(0);
     setCurrentStepWithSave(1);
     
-    // Clear some localStorage but keep folder counts and structure
     localStorage.removeItem('ocrResults');
-    localStorage.removeItem('finalResults');
     localStorage.removeItem('currentStep');
   };
 
-  const hardReset = () => {
+  const hardReset = async () => {
     setFiles([]);
     setOcrResults([]);
     setFinalResults([]);
@@ -307,8 +303,11 @@ export const useDocumentState = () => {
     setFoldersWithSave(defaultStructure);
     setProcessedFiles([]);
     
-    // Clear all localStorage
+    // Clear all localStorage AND IndexedDB
     localStorage.clear();
+    
+    const { clearAllFiles } = await import('./indexedDBHelper');
+    await clearAllFiles();
   };
 
   return {
