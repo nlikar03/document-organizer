@@ -41,8 +41,12 @@ export default function DocumentOrganizer() {
     handleDownloadExcel,
     hardReset,
     processedFilesCount,
+    processedFiles,
     resetAll,
   } = useDocumentState();
+
+  const [showProcessedFiles, setShowProcessedFiles] = React.useState(false);
+  const [showNoteModal, setShowNoteModal] = React.useState(false);
 
   const renderFolder = (folder) => {
     if (!isChildVisible(folder, folders)) return null;
@@ -129,13 +133,13 @@ export default function DocumentOrganizer() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
       <div className="max-w-6xl mx-auto">
         <div className="bg-white rounded-lg shadow-xl p-8 relative">
-          {currentStep < 4 && (
+          {currentStep < 5 && (
             <button
               onClick={hardReset}
               className="absolute top-6 right-6 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors font-medium flex items-center gap-2 text-sm"
             >
               <Trash2 size={16} />
-              Začni Znova
+              Pobriši napredek
             </button>
           )}
           <h1 className="text-4xl font-bold text-gray-800 mb-2 flex items-center gap-3">
@@ -145,7 +149,10 @@ export default function DocumentOrganizer() {
           <p className="text-gray-600 mb-8">AI klasifikacija dokumentov z OCR tehnologijo</p>
 
           {processedFilesCount > 0 && (
-            <div className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
+            <div
+              className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4 cursor-pointer hover:bg-blue-100 transition"
+              onClick={() => setShowProcessedFiles(true)}
+            >
               <div className="flex items-center justify-between">
                 <div>
                   <p className="text-sm text-blue-800 font-semibold">Skupno že procesiranih datotek:</p>
@@ -153,6 +160,77 @@ export default function DocumentOrganizer() {
                 </div>
                 <div className="text-blue-600">
                   <CheckCircle size={40} />
+                </div>
+              </div>
+            </div>
+          )}
+
+
+          {showProcessedFiles && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col">
+                
+                <div className="p-4 border-b flex items-center justify-between">
+                  <h3 className="text-lg font-bold text-gray-800">
+                    Že procesirane datoteke ({processedFiles.length})
+                  </h3>
+                  <button
+                    onClick={() => setShowProcessedFiles(false)}
+                    className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="p-4 overflow-y-auto space-y-2">
+                  {processedFiles.map((name, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded p-2"
+                    >
+                      <CheckCircle size={16} className="text-green-500" />
+                      <span className="text-sm text-gray-800 truncate">
+                        {name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+              </div>
+            </div>
+          )}
+
+
+          {showNoteModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[60] p-4">
+              <div className="bg-white rounded-xl shadow-2xl max-w-md w-full overflow-hidden">
+                <div className="bg-amber-500 p-4 flex items-center justify-between text-white">
+                  <h3 className="font-bold flex items-center gap-2 text-lg">
+                    ⚠️ Pomembne Omejitve
+                  </h3>
+                  <button onClick={() => setShowNoteModal(false)} className="hover:text-amber-100 text-2xl font-bold">×</button>
+                </div>
+                <div className="p-6">
+                  <ul className="space-y-3 text-gray-700">
+                    <li className="flex gap-2">
+                      <span className="text-amber-500 font-bold">•</span>
+                      <span>Maksimalna velikost posamezne datoteke je <b>150MB</b>.</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-amber-500 font-bold">•</span>
+                      <span>Hkrati lahko naložite do <b>150 datotek</b> za optimalno delovanje.</span>
+                    </li>
+                    <li className="flex gap-2">
+                      <span className="text-amber-500 font-bold">•</span>
+                      <span>Zaradi omejitev si spletna stran shranjuje napredek. Proces se lahko začne znova z novimi datotekami.</span>
+                    </li>
+                  </ul>
+                  <button
+                    onClick={() => setShowNoteModal(false)}
+                    className="w-full mt-6 bg-gray-800 text-white py-2 rounded-lg font-semibold hover:bg-gray-900 transition-colors"
+                  >
+                    Razumem
+                  </button>
                 </div>
               </div>
             </div>
@@ -212,7 +290,15 @@ export default function DocumentOrganizer() {
           {/* Step 2: File Upload */}
           {currentStep === 2 && (
             <div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-4">Naloži Dokumente</h2>
+              <div className="flex items-baseline gap-3 mb-4">
+                <h2 className="text-2xl font-bold text-gray-800">Naloži Dokumente</h2>
+                <button 
+                  onClick={() => setShowNoteModal(true)}
+                  className="px-3 py-1 bg-amber-100 text-amber-700 text-xs font-bold rounded-full hover:bg-amber-200 transition-colors border border-amber-200"
+                >
+                  Opomba
+                </button>
+              </div>
               
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-indigo-500 transition-colors mb-6">
                 <Upload className="mx-auto text-gray-400 mb-4" size={64} />
@@ -522,7 +608,7 @@ export default function DocumentOrganizer() {
                     onClick={resetAll}
                     className="w-full bg-gray-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-gray-700 transition-colors text-lg"
                   >
-                    ⟳ Začni Znova
+                    ⟳ Začni od Začetka
                   </button>
                 </div>
               )}

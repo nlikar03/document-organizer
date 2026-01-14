@@ -39,6 +39,11 @@ export const useDocumentState = () => {
     const saved = localStorage.getItem('processedFilesCount');
     return saved ? parseInt(saved) : 0;
   });
+
+  const [processedFiles, setProcessedFiles] = useState(() => {
+    const saved = localStorage.getItem('processedFiles');
+    return saved ? JSON.parse(saved) : [];
+  });
   
   const [folderCounts, setFolderCounts] = useState(() => {
     const saved = localStorage.getItem('folderCounts');
@@ -75,6 +80,12 @@ export const useDocumentState = () => {
     const updated = typeof results === 'function' ? results(finalResults) : results;
     setFinalResults(updated);
     localStorage.setItem('finalResults', JSON.stringify(updated));
+  };
+
+  const setProcessedFilesWithSave = (files) => {
+    const updated = typeof files === 'function' ? files(processedFiles) : files;
+    setProcessedFiles(updated);
+    localStorage.setItem('processedFiles', JSON.stringify(updated));
   };
 
   const setFolderCountsWithSave = (counts) => {
@@ -229,7 +240,12 @@ export const useDocumentState = () => {
     setFolderCountsWithSave(newFolderCounts);
 
     // Update total processed files count
+    setProcessedFilesWithSave(prev => [
+      ...prev,
+      ...results.map(r => r.fileName)
+    ]);
     setProcessedFilesCountWithSave(processedFilesCount + results.length);
+
 
     setAiProcessing(false);
   };
@@ -286,6 +302,7 @@ export const useDocumentState = () => {
     setProcessedFilesCount(0);
     setFolderCounts({});
     setFoldersWithSave(defaultStructure);
+    setProcessedFiles([]);
     
     // Clear all localStorage
     localStorage.clear();
@@ -313,6 +330,7 @@ export const useDocumentState = () => {
     viewingOcrText,
     processedFilesCount,
     folderCounts,
+    processedFiles,
     
     // Setters
     setEditingName,
