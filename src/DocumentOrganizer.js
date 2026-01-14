@@ -153,18 +153,60 @@ export default function DocumentOrganizer() {
           <p className="text-gray-600 mb-8">AI klasifikacija dokumentov z OCR tehnologijo</p>
 
           {processedFilesCount > 0 && (
-            <div
-              className="mb-6 bg-blue-50 border border-blue-200 rounded-lg p-4 cursor-pointer hover:bg-blue-100 transition"
-              onClick={() => setShowProcessedFiles(true)}
-            >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-blue-800 font-semibold">Skupno že procesiranih datotek:</p>
-                  <p className="text-2xl font-bold text-blue-900">{processedFilesCount}</p>
+            <div className="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl shadow-sm overflow-hidden">
+              <div className="flex flex-col md:flex-row items-center justify-between p-6 gap-6">
+                
+                {/* LEFT SIDE: Stats & List Trigger */}
+                <div 
+                  className="flex-1 flex items-center gap-4 cursor-pointer group"
+                  onClick={() => setShowProcessedFiles(true)}
+                >
+                  <div className="bg-blue-600 p-3 rounded-xl text-white shadow-lg shadow-blue-200 group-hover:scale-110 transition-transform">
+                    <CheckCircle size={28} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-black text-blue-500 uppercase tracking-widest mb-0.5">
+                      Uspešno procesirano
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-3xl font-black text-slate-900 leading-none">
+                        {processedFilesCount}
+                      </span>
+                      <span className="text-slate-600 font-semibold">dokumentov</span>
+                      <ChevronRight size={18} className="text-blue-300 group-hover:translate-x-1 transition-transform ml-1" />
+                    </div>
+                  </div>
                 </div>
-                <div className="text-blue-600">
-                  <CheckCircle size={40} />
+
+                {/* RIGHT SIDE: Action Buttons */}
+                <div className="flex flex-wrap md:flex-nowrap gap-3 w-full md:w-auto">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDownloadZip(); }}
+                    disabled={isDownloading}
+                    className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white text-blue-700 border-2 border-blue-600 px-6 py-3 rounded-xl font-bold hover:bg-blue-50 disabled:bg-slate-100 disabled:border-slate-200 disabled:text-slate-400 transition-all active:scale-95 shadow-sm"
+                  >
+                    {isDownloading ? (
+                      <Loader2 className="animate-spin" size={20} />
+                    ) : (
+                      <Download size={20} />
+                    )}
+                    <span>ZIP Arhiv</span>
+                  </button>
+
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDownloadExcel(); }}
+                    disabled={isDownloadingExcel}
+                    className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-700 disabled:bg-slate-400 transition-all active:scale-95 shadow-md shadow-emerald-100"
+                  >
+                    {isDownloadingExcel ? (
+                      <Loader2 className="animate-spin" size={20} />
+                    ) : (
+                      <FileText size={20} />
+                    )}
+                    <span>Excel Seznam</span>
+                  </button>
                 </div>
+
               </div>
             </div>
           )}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { defaultStructure } from './documentUtils';
-import { verifyPassword, processOCR, processAI, downloadZip, downloadExcel } from './documentApi';
+import { verifyPassword, processOCR, processAI} from './documentApi';
+import { saveFileToIndexedDB} from './indexedDBHelper';
 
 export const useDocumentState = () => {
   const [folders, setFolders] = useState(() => {
@@ -198,12 +199,12 @@ export const useDocumentState = () => {
     setOcrResultsWithSave([]);
     setCurrentStepWithSave(3);
 
-    await processOCR(
-      files, 
-      password, 
-      setOcrProgress, 
-      setOcrResultsWithSave
-    );
+    const results = await processOCR(files, password, setOcrProgress, setOcrResultsWithSave);
+    
+    // Save files to IndexedDB
+    for (const result of results) {
+      await saveFileToIndexedDB(result.fileName, result.originalFile);
+    }
 
     setOcrProcessing(false);
   };
@@ -254,7 +255,8 @@ export const useDocumentState = () => {
   const handleDownloadZip = async () => {
     setIsDownloading(true);
     try {
-      await downloadZip(finalResults, folders, password);
+      const { downloadZipClientSide } = await import('./clientDownloads');
+      await downloadZipClientSide(finalResults, folders);
     } catch (error) {
       console.error('Download failed:', error);
       alert(`Prenos ZIP datoteke ni uspel: ${error.message}`);
@@ -266,7 +268,8 @@ export const useDocumentState = () => {
   const handleDownloadExcel = async () => {
     setIsDownloadingExcel(true);
     try {
-      await downloadExcel(finalResults, folders, password);
+      const { downloadExcelClientSide } = await import('./clientDownloads');
+      await downloadExcelClientSide(finalResults, folders);
     } catch (error) {
       console.error('Excel download failed:', error);
       alert(`Prenos Excel datoteke ni uspel: ${error.message}`);
