@@ -361,8 +361,8 @@ export default function DocumentOrganizer() {
                 <div className="mt-4 flex items-center justify-center gap-6 text-sm">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-gray-700">Število datotek:</span>
-                    <span className={`font-bold ${files.length > 150 ? 'text-red-600' : 'text-indigo-600'}`}>
-                      {files.length} / 150
+                    <span className={`font-bold ${files.length > 200 ? 'text-red-600' : 'text-indigo-600'}`}>
+                      {files.length} / 200
                     </span>
                   </div>
                   <div className="h-4 w-px bg-gray-300"></div>

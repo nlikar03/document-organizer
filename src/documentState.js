@@ -152,8 +152,8 @@ export const useDocumentState = () => {
     const allFiles = [...files, ...newFiles];
     const totalSize = allFiles.reduce((sum, f) => sum + f.size, 0);
     
-    if (allFiles.length > 150) {
-      alert('Maksimalno število datotek je 150 na enkrat.');
+    if (allFiles.length > 200) {
+      alert('Maksimalno število datotek je 200 na enkrat.');
       return;
     }
     

@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { PDFDocument, rgb } from 'pdf-lib';
+import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import * as XLSX from 'xlsx';
 import { getFileFromIndexedDB } from './indexedDBHelper';
 
@@ -7,16 +7,29 @@ export const addWatermarkToPDF = async (pdfBytes, watermarkText) => {
   try {
     const pdfDoc = await PDFDocument.load(pdfBytes);
     const pages = pdfDoc.getPages();
+    if (pages.length === 0) return pdfBytes;
+
     const firstPage = pages[0];
+    
     const { width, height } = firstPage.getSize();
+    const rotationAngle = firstPage.getRotation().angle;
+
+    const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+    const fontSize = 20;
+    const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
     
+    const margin = 30;
+
+
     firstPage.drawText(watermarkText, {
-      x: width - 200,
-      y: height - 30,
-      size: 20,
+      x: width - textWidth - margin, 
+      y: height - margin - 15, 
+      size: fontSize,
+      font: font,
       color: rgb(1, 0, 0),
+      rotate: degrees(rotationAngle), 
     });
-    
+
     return await pdfDoc.save();
   } catch (error) {
     console.error('Watermark error:', error);
