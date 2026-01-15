@@ -135,6 +135,19 @@ export default function DocumentOrganizer() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
       <div className="max-w-6xl mx-auto">
+        <div className="flex items-center justify-between mb-6 px-2">
+          <div className="flex items-center gap-3">
+            <img
+              src={process.env.PUBLIC_URL + '/KOLEKTOR_LOGO.png'}
+              className="h-10 w-auto"
+              alt="Logo"
+            />
+          </div>
+
+          <span className="text-xs text-gray-500">
+            v0.8
+          </span>
+        </div>
         <div className="bg-white rounded-lg shadow-xl p-8 relative">
           {currentStep < 5 && (
             <button
