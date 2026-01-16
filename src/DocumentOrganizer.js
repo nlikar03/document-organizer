@@ -143,10 +143,6 @@ export default function DocumentOrganizer() {
               alt="Logo"
             />
           </div>
-
-          <span className="text-xs text-gray-500">
-            v0.8
-          </span>
         </div>
         <div className="bg-white rounded-lg shadow-xl p-8 relative">
           {currentStep < 5 && (
@@ -634,7 +630,12 @@ export default function DocumentOrganizer() {
 
         <div className="mt-8 text-center text-gray-600 text-sm">
           <p>Spletna stran za pomoč pri kategorizaciji DZO dokumentov</p>
+
+        
         </div>
+          <span className="text-xs text-gray-500">
+            v0.8
+          </span>
       </div>
     </div>
   );
