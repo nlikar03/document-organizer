@@ -104,12 +104,13 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
   );
   
   const data = [
-    ['Zap. št.', 'Ime dokazila oz. na kaj se dokazilo nanaša', 'Izdajatelj', 'Št. dokazila', 'Datum', 'Kategorija', 'Koda dokumenta']
+    ['Zap. št.', 'Originalno ime', 'Ime dokazila oz. na kaj se dokazilo nanaša', 'Izdajatelj', 'Št. dokazila', 'Datum', 'Kategorija', 'Koda dokumenta']
   ];
   
   for (const res of sorted) {
     data.push([
       res.fileNumber,
+      res.fileName,
       res.documentTitle || '',
       res.issuer || '',
       res.documentNumber || '',

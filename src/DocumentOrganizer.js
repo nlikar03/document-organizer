@@ -42,6 +42,7 @@ export default function DocumentOrganizer() {
     hardReset,
     processedFilesCount,
     processedFiles,
+    authLoading,
     resetAll,
   } = useDocumentState();
 
@@ -49,6 +50,9 @@ export default function DocumentOrganizer() {
   //modals
   const [showProcessedFiles, setShowProcessedFiles] = React.useState(false);
   const [showResetConfirm, setShowResetConfirm] = React.useState(false);
+
+  const [showDeleteAll, setShowDeleteAll] = React.useState(false);
+
 
 
   const renderFolder = (folder) => {
@@ -122,10 +126,18 @@ export default function DocumentOrganizer() {
             
             <button
               type="submit"
-              className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors"
+              disabled={authLoading}
+              className="w-full bg-indigo-600 text-white py-3 rounded-lg font-bold
+                        hover:bg-indigo-700 transition-colors disabled:opacity-70"
             >
-              Vstopi
+              {authLoading ? 'Zaganjam aplikacijo…' : 'Vstopi'}
             </button>
+
+            {authLoading && (
+              <p className="text-gray-500 text-sm mt-4 text-center">
+                Prvi zagon lahko traja do 2 minuti, ker se strežnik še zaganja
+              </p>
+            )}
           </form>
         </div>
       </div>
@@ -145,15 +157,27 @@ export default function DocumentOrganizer() {
           </div>
         </div>
         <div className="bg-white rounded-lg shadow-xl p-8 relative">
-          {currentStep < 5 && (
-            <button
-              onClick={hardReset}
-              className="absolute top-6 right-6 bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors font-medium flex items-center gap-2 text-sm"
-            >
-              <Trash2 size={16} />
-              Pobriši napredek
-            </button>
-          )}
+            <div className="absolute top-6 right-6 flex gap-2">
+              {processedFilesCount > 0 && (
+                <button
+                  onClick={() => setShowDeleteAll(true)}
+                  className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors font-medium flex items-center gap-2 text-sm"
+                >
+                  <Trash2 size={16} />
+                  Pobriši napredek
+                </button>
+              )}
+
+              {processedFilesCount > 0 && (
+                <button
+                  onClick={() => setShowResetConfirm(true)}
+                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors font-medium flex items-center gap-2 text-sm"
+                >
+                  ⟳ Začni od začetka
+                </button>
+              )}
+            </div>
+
           <h1 className="text-4xl font-bold text-gray-800 mb-2 flex items-center gap-3">
             <FolderTree className="text-indigo-600" size={40} />
             Organizator Dokumentov DZO
@@ -278,6 +302,41 @@ export default function DocumentOrganizer() {
                     onClick={() => {
                       resetAll();
                       setShowResetConfirm(false);
+                    }}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
+                  >
+                    Da, nadaljuj
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          )}
+
+          {showDeleteAll && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+                
+                <div className="p-6 border-b">
+                  <h3 className="text-xl font-bold text-gray-800">
+                    Ste prepričani?
+                  </h3>
+                  <p className="text-gray-600 mt-2">
+                    Trenutnen napredek bo zbrisan.
+                  </p>
+                </div>
+
+                <div className="p-6 flex justify-end gap-3">
+                  <button
+                    onClick={() => setShowDeleteAll(false)}
+                    className="px-4 py-2 bg-gray-200 rounded-lg font-semibold hover:bg-gray-300"
+                  >
+                    Prekliči
+                  </button>
+                  <button
+                    onClick={() => {
+                      hardReset();
+                      setShowDeleteAll(false);
                     }}
                     className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
                   >
@@ -616,12 +675,7 @@ export default function DocumentOrganizer() {
                     </div>
                   </div>
 
-                  <button
-                      onClick={() => setShowResetConfirm(true)}
-                      className="w-full bg-gray-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-gray-700 transition-colors text-lg"
-                    >
-                      ⟳ Začni od Začetka
-                    </button>
+                  
                 </div>
               )}
             </div>
@@ -630,8 +684,6 @@ export default function DocumentOrganizer() {
 
         <div className="mt-8 text-center text-gray-600 text-sm">
           <p>Spletna stran za pomoč pri kategorizaciji DZO dokumentov</p>
-
-        
         </div>
           <span className="text-xs text-gray-500">
             v0.8

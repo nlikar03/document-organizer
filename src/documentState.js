@@ -59,6 +59,8 @@ export const useDocumentState = () => {
   const [authError, setAuthError] = useState('');
   const [viewingOcrText, setViewingOcrText] = useState(null);
 
+  const [authLoading, setAuthLoading] = useState(false);
+
   // Wrapper functions to save to localStorage
   const setFoldersWithSave = (newFolders) => {
     const updated = typeof newFolders === 'function' ? newFolders(folders) : newFolders;
@@ -177,18 +179,20 @@ export const useDocumentState = () => {
       setAuthError('Prosim vnesite geslo');
       return;
     }
-    
+    setAuthLoading(true);
+    setAuthError('');
     try {
       const isValid = await verifyPassword(password);
       if (isValid) {
         setIsAuthenticated(true);
-        setAuthError('');
       } else {
         setAuthError('Napačno geslo');
         setPassword('');
+        setAuthLoading(false);
       }
     } catch (error) {
       setAuthError('Napaka pri preverjanju gesla');
+      setAuthLoading(false);
     }
   };
 
@@ -333,6 +337,8 @@ export const useDocumentState = () => {
     processedFilesCount,
     folderCounts,
     processedFiles,
+
+    authLoading,
     
     // Setters
     setEditingName,
