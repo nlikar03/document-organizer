@@ -1,15 +1,14 @@
 import React from 'react';
-import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, ChevronRight, ChevronDown, Loader2, Edit2, Scan, Brain, Download } from 'lucide-react';
+import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, Loader2, Scan, Brain, Download, Eye } from 'lucide-react';
 import { useDocumentState } from './documentState';
-import { getFullPath, isChildVisible } from './documentUtils';
+import { FolderTreeStep1, FolderTreeStep5, UploadModal } from './FolderTreeView';
+import { FolderFilesModal, ProcessedFilesModal, ResetConfirmModal, DeleteAllModal, OcrTextViewModal, FileEditModal } from './Modals';
 
 export default function DocumentOrganizer() {
   const {
     folders,
     files,
     currentStep,
-    editingId,
-    editingName,
     ocrProgress,
     ocrProcessing,
     ocrResults,
@@ -23,13 +22,29 @@ export default function DocumentOrganizer() {
     isAuthenticated,
     authError,
     viewingOcrText,
+    directUploads,
+    editingFileId,
+    editingFileData,
+    authLoading,
+    isMetadataExtracted,
+    isFinalized,
+    isExtractingMetadata,
+    isGeneratingCodes,
+    metadataProgress,
+    processedFilesCount,
+    processedFiles,
+    editingId,
+    editingName,
     setEditingName,
     setPassword,
     setCurrentStep,
     setViewingOcrText,
+    setEditingFileData,
     toggleFolder,
     addFolder,
     deleteFolder,
+    moveFolderUp,
+    moveFolderDown,
     startEdit,
     saveEdit,
     handleFileUpload,
@@ -40,70 +55,56 @@ export default function DocumentOrganizer() {
     handleDownloadZip,
     handleDownloadExcel,
     hardReset,
-    processedFilesCount,
-    processedFiles,
-    authLoading,
     resetAll,
+    handleDirectUploadToFolder,
+    removeDirectUpload,
+    moveToReviewPage,
+    startFileEdit,
+    saveFileEdit,
+    cancelFileEdit,
+    removeFileFromReview,
+    extractMetadataForDirectUploads,
+    generateDocumentCodes,
   } = useDocumentState();
 
-
-  //modals
+  // Modals
   const [showProcessedFiles, setShowProcessedFiles] = React.useState(false);
   const [showResetConfirm, setShowResetConfirm] = React.useState(false);
-
   const [showDeleteAll, setShowDeleteAll] = React.useState(false);
+  const [showFolderFiles, setShowFolderFiles] = React.useState(false);
+  const [selectedFolder, setSelectedFolder] = React.useState(null);
+  
+  // Upload modal state
+  const [uploadModalOpen, setUploadModalOpen] = React.useState(false);
+  const [uploadModalFolderId, setUploadModalFolderId] = React.useState(null);
+  const [uploadingToFolder, setUploadingToFolder] = React.useState(false);
 
-
-
-  const renderFolder = (folder) => {
-    if (!isChildVisible(folder, folders)) return null;
-
-    const hasChildren = folders.some(f => 
-      f.id.startsWith(folder.id + '.') && f.id.split('.').length === folder.id.split('.').length + 1
-    );
-
-    return (
-      <div key={folder.id} style={{ marginLeft: `${folder.level * 24}px` }} className="group">
-        <div className="flex items-center gap-2 py-2 px-3 hover:bg-indigo-50 rounded transition-colors">
-          <button onClick={() => toggleFolder(folder.id)} className="p-1 hover:bg-indigo-100 rounded">
-            {hasChildren ? (folder.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />) : <div className="w-4" />}
-          </button>
-          
-          <div className="flex-1 flex items-center gap-2">
-            {editingId === folder.id ? (
-              <input
-                type="text"
-                value={editingName}
-                onChange={(e) => setEditingName(e.target.value)}
-                onBlur={() => saveEdit(folder.id)}
-                onKeyDown={(e) => e.key === 'Enter' && saveEdit(folder.id)}
-                className="flex-1 px-2 py-1 border border-indigo-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                autoFocus
-              />
-            ) : (
-              <>
-                <span className="text-indigo-600">📁</span>
-                <span className="text-sm font-medium text-gray-700">{folder.name}</span>
-              </>
-            )}
-          </div>
-
-          <div className="opacity-0 group-hover:opacity-100 flex gap-1 transition-opacity">
-            <button onClick={() => startEdit(folder.id, folder.name)} className="p-1 hover:bg-indigo-100 rounded" title="Uredi">
-              <Edit2 size={14} className="text-gray-600" />
-            </button>
-            <button onClick={() => addFolder(folder.id, folder.level + 1)} className="p-1 hover:bg-indigo-100 rounded" title="Dodaj podmapo">
-              <Plus size={14} className="text-green-600" />
-            </button>
-            <button onClick={() => deleteFolder(folder.id)} className="p-1 hover:bg-red-100 rounded" title="Izbriši">
-              <Trash2 size={14} className="text-red-600" />
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+  const openUploadModal = (folderId) => {
+    setUploadModalFolderId(folderId);
+    setUploadModalOpen(true);
   };
 
+  const handleUploadToFolder = async (e) => {
+    const uploadedFiles = Array.from(e.target.files);
+    if (uploadedFiles.length === 0) return;
+    
+    setUploadingToFolder(true);
+    await handleDirectUploadToFolder(uploadModalFolderId, uploadedFiles);
+    setUploadingToFolder(false);
+    setUploadModalOpen(false);
+    setUploadModalFolderId(null);
+  };
+  
+  const openFolderFiles = (folderId) => {
+    const folder = folders.find(f => f.id === folderId);
+    setSelectedFolder(folder);
+    setShowFolderFiles(true);
+  };
+
+  // Calculate total files for processed banner (only shows AFTER finalization)
+  const totalFilesForBanner = isFinalized ? processedFilesCount : 0;
+
+  // Authentication screen
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-8">
@@ -156,27 +157,29 @@ export default function DocumentOrganizer() {
             />
           </div>
         </div>
+        
         <div className="bg-white rounded-lg shadow-xl p-8 relative">
-            <div className="absolute top-6 right-6 flex gap-2">
-              {processedFilesCount > 0 && (
-                <button
-                  onClick={() => setShowDeleteAll(true)}
-                  className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors font-medium flex items-center gap-2 text-sm"
-                >
-                  <Trash2 size={16} />
-                  Pobriši napredek
-                </button>
-              )}
+          {/* Reset buttons */}
+          <div className="absolute top-6 right-6 flex gap-2">
+            {processedFilesCount > 0 && (
+              <button
+                onClick={() => setShowDeleteAll(true)}
+                className="bg-red-500 text-white px-4 py-2 rounded-lg hover:bg-red-600 transition-colors font-medium flex items-center gap-2 text-sm"
+              >
+                <Trash2 size={16} />
+                Pobriši napredek
+              </button>
+            )}
 
-              {processedFilesCount > 0 && (
-                <button
-                  onClick={() => setShowResetConfirm(true)}
-                  className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors font-medium flex items-center gap-2 text-sm"
-                >
-                  ⟳ Začni od začetka
-                </button>
-              )}
-            </div>
+            {processedFilesCount > 0 && (
+              <button
+                onClick={() => setShowResetConfirm(true)}
+                className="bg-gray-600 text-white px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors font-medium flex items-center gap-2 text-sm"
+              >
+                ⟳ Začni od začetka
+              </button>
+            )}
+          </div>
 
           <h1 className="text-4xl font-bold text-gray-800 mb-2 flex items-center gap-3">
             <FolderTree className="text-indigo-600" size={40} />
@@ -184,11 +187,10 @@ export default function DocumentOrganizer() {
           </h1>
           <p className="text-gray-600 mb-8">AI klasifikacija dokumentov z OCR tehnologijo</p>
 
-          {processedFilesCount > 0 && (
+          {/* Processed files banner - only shown AFTER finalization */}
+          {isFinalized && totalFilesForBanner > 0 && (
             <div className="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl shadow-sm overflow-hidden">
               <div className="flex flex-col md:flex-row items-center justify-between p-6 gap-6">
-                
-                {/* LEFT SIDE: Stats & List Trigger */}
                 <div 
                   className="flex-1 flex items-center gap-4 cursor-pointer group"
                   onClick={() => setShowProcessedFiles(true)}
@@ -202,15 +204,13 @@ export default function DocumentOrganizer() {
                     </p>
                     <div className="flex items-center gap-2">
                       <span className="text-3xl font-black text-slate-900 leading-none">
-                        {processedFilesCount}
+                        {totalFilesForBanner}
                       </span>
                       <span className="text-slate-600 font-semibold">dokumentov</span>
-                      <ChevronRight size={18} className="text-blue-300 group-hover:translate-x-1 transition-transform ml-1" />
                     </div>
                   </div>
                 </div>
 
-                {/* RIGHT SIDE: Action Buttons */}
                 <div className="flex flex-wrap md:flex-nowrap gap-3 w-full md:w-auto">
                   <button
                     onClick={(e) => { e.stopPropagation(); handleDownloadZip(); }}
@@ -238,132 +238,27 @@ export default function DocumentOrganizer() {
                     <span>Excel Seznam</span>
                   </button>
                 </div>
-
-              </div>
-            </div>
-          )}
-
-          
-          {showProcessedFiles && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col">
-                
-                <div className="p-4 border-b flex items-center justify-between">
-                  <h3 className="text-lg font-bold text-gray-800">
-                    Že procesirane datoteke ({processedFiles.length})
-                  </h3>
-                  <button
-                    onClick={() => setShowProcessedFiles(false)}
-                    className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
-                  >
-                    ×
-                  </button>
-                </div>
-
-                <div className="p-4 overflow-y-auto space-y-2">
-                  {processedFiles.map((name, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded p-2"
-                    >
-                      <CheckCircle size={16} className="text-green-500" />
-                      <span className="text-sm text-gray-800 truncate">
-                        {name}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-              </div>
-            </div>
-          )}
-
-          {showResetConfirm && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-                
-                <div className="p-6 border-b">
-                  <h3 className="text-xl font-bold text-gray-800">
-                    Ste prepričani?
-                  </h3>
-                  <p className="text-gray-600 mt-2">
-                    Trenutni proces bo ponastavljen. Vse že procesirane datoteke ostanejo shranjene za prenos.
-                  </p>
-                </div>
-
-                <div className="p-6 flex justify-end gap-3">
-                  <button
-                    onClick={() => setShowResetConfirm(false)}
-                    className="px-4 py-2 bg-gray-200 rounded-lg font-semibold hover:bg-gray-300"
-                  >
-                    Prekliči
-                  </button>
-                  <button
-                    onClick={() => {
-                      resetAll();
-                      setShowResetConfirm(false);
-                    }}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
-                  >
-                    Da, nadaljuj
-                  </button>
-                </div>
-
-              </div>
-            </div>
-          )}
-
-          {showDeleteAll && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-                
-                <div className="p-6 border-b">
-                  <h3 className="text-xl font-bold text-gray-800">
-                    Ste prepričani?
-                  </h3>
-                  <p className="text-gray-600 mt-2">
-                    Trenutnen napredek bo zbrisan.
-                  </p>
-                </div>
-
-                <div className="p-6 flex justify-end gap-3">
-                  <button
-                    onClick={() => setShowDeleteAll(false)}
-                    className="px-4 py-2 bg-gray-200 rounded-lg font-semibold hover:bg-gray-300"
-                  >
-                    Prekliči
-                  </button>
-                  <button
-                    onClick={() => {
-                      hardReset();
-                      setShowDeleteAll(false);
-                    }}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
-                  >
-                    Da, nadaljuj
-                  </button>
-                </div>
-
               </div>
             </div>
           )}
 
           {/* Progress Indicator */}
-          <div className="flex items-center justify-between mb-8 pb-6 border-b">
+          <div className="flex items-center justify-between mb-8 pb-6 border-b overflow-x-auto">
             {[
               { num: 1, label: 'Struktura Map' },
               { num: 2, label: 'Naloži Datoteke' },
               { num: 3, label: 'OCR Skeniranje' },
-              { num: 4, label: 'AI Kategorizacija' }
+              { num: 4, label: 'AI Kategorizacija' },
+              { num: 5, label: 'Pregled in Urejanje' }
             ].map((step, idx) => (
               <React.Fragment key={step.num}>
                 <div className={`flex items-center gap-2 ${currentStep >= step.num ? 'text-indigo-600' : 'text-gray-400'}`}>
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${currentStep >= step.num ? 'bg-indigo-600 text-white' : 'bg-gray-200'}`}>
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${currentStep >= step.num ? 'bg-indigo-600 text-white' : 'bg-gray-200'}`}>
                     {step.num}
                   </div>
-                  <span className="font-medium text-sm">{step.label}</span>
+                  <span className="font-medium text-xs whitespace-nowrap">{step.label}</span>
                 </div>
-                {idx < 3 && (
+                {idx < 4 && (
                   <div className="flex-1 h-1 bg-gray-200 mx-2">
                     <div className={`h-full ${currentStep > step.num ? 'bg-indigo-600' : 'bg-gray-200'} transition-all`}></div>
                   </div>
@@ -376,7 +271,14 @@ export default function DocumentOrganizer() {
           {currentStep === 1 && (
             <div>
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-2xl font-bold text-gray-800">Definiraj Strukturo Map</h2>
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">Definiraj Strukturo Map</h2>
+                  {directUploads.length > 0 && (
+                    <p className="text-sm text-gray-600 mt-1">
+                      {directUploads.length} dokumentov naloženih direktno v mape
+                    </p>
+                  )}
+                </div>
                 <button
                   onClick={() => addFolder('root', 0)}
                   className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
@@ -387,15 +289,42 @@ export default function DocumentOrganizer() {
               </div>
 
               <div className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50 mb-6 max-h-[500px] overflow-y-auto">
-                {folders.map((folder) => renderFolder(folder))}
+                <FolderTreeStep1 
+                  folders={folders}
+                  directUploads={directUploads}
+                  editingId={editingId}
+                  editingName={editingName}
+                  setEditingName={setEditingName}
+                  toggleFolder={toggleFolder}
+                  startEdit={startEdit}
+                  saveEdit={saveEdit}
+                  addFolder={addFolder}
+                  deleteFolder={deleteFolder}
+                  moveFolderUp={moveFolderUp}
+                  moveFolderDown={moveFolderDown}
+                  openUploadModal={openUploadModal}
+                  openFolderFiles={openFolderFiles}
+                  removeDirectUpload={removeDirectUpload}
+                  handleDirectUploadToFolder={handleDirectUploadToFolder}
+                />
               </div>
 
-              <button
-                onClick={() => setCurrentStep(2)}
-                className="w-full bg-indigo-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-indigo-700 transition-colors text-lg"
-              >
-                Naprej na Nalaganje Datotek →
-              </button>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setCurrentStep(2)}
+                  className="flex-1 bg-indigo-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-indigo-700 transition-colors text-lg"
+                >
+                  Naprej na Nalaganje Datotek →
+                </button>
+                <button
+                  onClick={moveToReviewPage}
+                  disabled={directUploads.length === 0}
+                  className="flex-1 bg-purple-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-purple-700 disabled:bg-gray-300 disabled:cursor-not-allowed transition-colors text-lg flex items-center justify-center gap-2"
+                >
+                  <Eye size={24} />
+                  Preskoči AI Kategorizacijo
+                </button>
+              </div>
             </div>
           )}
 
@@ -403,8 +332,7 @@ export default function DocumentOrganizer() {
           {currentStep === 2 && (
             <div>
               <div className="flex items-baseline gap-3 mb-4">
-                <h2 className="text-2xl font-bold text-gray-800">Naloži Dokumente</h2>
-                
+                <h2 className="text-2xl font-bold text-gray-800">Naloži Dokumente za Auto-Klasifikacijo</h2>
               </div>
               
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-indigo-500 transition-colors mb-6">
@@ -425,6 +353,7 @@ export default function DocumentOrganizer() {
                 </label>
                 <p className="text-sm text-gray-500 mt-3">PDF, PNG, JPG, JPEG do 150MB</p>
               </div>
+              
               {files.length > 0 && (
                 <div className="mt-4 flex items-center justify-center gap-6 text-sm">
                   <div className="flex items-center gap-2">
@@ -542,26 +471,6 @@ export default function DocumentOrganizer() {
                   Začni AI Kategorizacijo →
                 </button>
               )}
-              {viewingOcrText && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                  <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[80vh] flex flex-col">
-                    <div className="p-6 border-b flex items-center justify-between">
-                      <h3 className="text-xl font-bold text-gray-800">{viewingOcrText.fileName}</h3>
-                      <button
-                        onClick={() => setViewingOcrText(null)}
-                        className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
-                      >
-                        ×
-                      </button>
-                    </div>
-                    <div className="p-6 overflow-y-auto flex-1">
-                      <pre className="text-sm text-gray-700 whitespace-pre-wrap font-mono bg-gray-50 p-4 rounded">
-                        {viewingOcrText.extractedText}
-                      </pre>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -604,10 +513,7 @@ export default function DocumentOrganizer() {
                   <div key={idx} className="bg-white border-2 border-gray-200 rounded-lg p-4 hover:border-purple-300 transition-colors">
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-semibold text-gray-800">{result.fileName}</span>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-red-100 text-red-700 px-2 py-1 rounded text-xs font-mono font-bold">{result.docCode}</span>
-                        <CheckCircle size={20} className="text-green-500" />
-                      </div>
+                      <CheckCircle size={20} className="text-green-500" />
                     </div>
                     
                     {(result.issuer || result.date || result.documentNumber) && (
@@ -637,8 +543,7 @@ export default function DocumentOrganizer() {
                       <span className="text-purple-600 text-2xl">📁</span>
                       <div className="flex-1">
                         <p className="text-xs text-gray-600 font-semibold">Predlagana kategorija:</p>
-                        <p className="text-sm font-bold text-purple-700">{getFullPath(result.suggestedFolder.id, folders)}</p>
-                        <p className="text-xs text-gray-500 mt-1">Številka datoteke: #{result.fileNumber}</p>
+                        <p className="text-sm font-bold text-purple-700">{result.suggestedFolder.fullPath}</p>
                       </div>
                     </div>
                   </div>
@@ -653,41 +558,186 @@ export default function DocumentOrganizer() {
                     <p className="text-green-700">Uspešno kategoriziranih {finalResults.length} dokumentov</p>
                   </div>
 
-                  <div className="bg-gray-50 rounded-lg p-6">
-                    <h3 className="font-bold text-gray-800 mb-4 text-lg">Povzetek Kategorizacije:</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {(() => {
-                        const summary = {};
-                        finalResults.forEach(r => {
-                          const folderPath = getFullPath(r.suggestedFolder.id, folders);
-                          summary[folderPath] = (summary[folderPath] || 0) + 1;
-                        });
-                        return Object.entries(summary).map(([folder, count]) => (
-                          <div key={folder} className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-3">
-                            <span className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                              <span className="text-indigo-600">📁</span>
-                              {folder}
-                            </span>
-                            <span className="bg-indigo-100 text-indigo-700 px-3 py-1 rounded-full text-sm font-bold">{count}</span>
-                          </div>
-                        ));
-                      })()}
-                    </div>
-                  </div>
-
-                  
+                  <button
+                    onClick={moveToReviewPage}
+                    className="w-full bg-indigo-600 text-white py-4 px-6 rounded-lg font-bold hover:bg-indigo-700 transition-colors text-lg flex items-center justify-center gap-2"
+                  >
+                    <Eye size={24} />
+                    Pregled in Urejanje Dokumentov →
+                  </button>
                 </div>
               )}
             </div>
           )}
+
+          {/* Step 5: Review & Edit */}
+          {currentStep === 5 && (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-gray-800">Pregled in Urejanje Dokumentov</h2>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Preglejte in uredite dokumente pred finalizacijo
+                  </p>
+                </div>
+                {/* Top right buttons removed from here */}
+              </div>
+
+              <div className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50 mb-6 max-h-[600px] overflow-y-auto">
+                <FolderTreeStep5 
+                  folders={folders}
+                  finalResults={finalResults}
+                  directUploads={directUploads}
+                  toggleFolder={toggleFolder}
+                  startFileEdit={startFileEdit}
+                  removeFileFromReview={removeFileFromReview}
+                />
+              </div>
+
+              {/* Metadata extraction progress */}
+              {isExtractingMetadata && (
+                <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-semibold text-blue-800">
+                      Izvlačenje metapodatkov...
+                    </span>
+                    <span className="text-sm text-blue-700 font-bold">{Math.round(metadataProgress)}%</span>
+                  </div>
+                  <div className="w-full bg-blue-200 rounded-full h-3 overflow-hidden">
+                    <div className="bg-blue-600 h-full transition-all duration-300 rounded-full" style={{ width: `${metadataProgress}%` }}></div>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-2 flex items-center gap-2">
+                    <Loader2 className="animate-spin" size={12} />
+                    Obdelujem naložene datoteke...
+                  </p>
+                </div>
+              )}
+
+              {/* Bottom Button Row */}
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setCurrentStep(4)}
+                  className="flex-1 bg-gray-200 text-gray-700 py-4 px-6 rounded-lg font-bold hover:bg-gray-300 transition-colors text-lg"
+                >
+                  ← Nazaj
+                </button>
+
+                {/* Moved: Metadata Button */}
+                <button
+                  onClick={extractMetadataForDirectUploads}
+                  disabled={isExtractingMetadata || isMetadataExtracted || directUploads.length === 0}
+                  className="flex-1 bg-blue-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 text-lg"
+                >
+                  {isExtractingMetadata ? (
+                    <>
+                      <Loader2 className="animate-spin" size={20} />
+                      Pridobivanje...
+                    </>
+                  ) : isMetadataExtracted ? (
+                    <>
+                      <CheckCircle size={20} />
+                      Izvlečeno
+                    </>
+                  ) : (
+                    <>
+                      <Scan size={20} />
+                      Izvleci metapodatke
+                    </>
+                  )}
+                </button>
+
+                {/* Moved: Generate Button */}
+                <button
+                  onClick={generateDocumentCodes}
+                  disabled={isGeneratingCodes}
+                  className="flex-1 bg-red-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 text-lg"
+                >
+                  {isGeneratingCodes ? (
+                    <>
+                      <Loader2 className="animate-spin" size={20} />
+                      Generiram...
+                    </>
+                  ) : isFinalized ? (
+                    <>
+                      <CheckCircle size={20} />
+                      Ponovno generiraj
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle size={20} />
+                      Generiraj šifre
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Modals */}
+          <FolderFilesModal 
+            isOpen={showFolderFiles}
+            onClose={() => setShowFolderFiles(false)}
+            folder={selectedFolder}
+            files={directUploads}
+            folders={folders}
+          />
+          
+          <ProcessedFilesModal 
+            isOpen={showProcessedFiles}
+            onClose={() => setShowProcessedFiles(false)}
+            processedFiles={processedFiles}
+          />
+
+          <ResetConfirmModal 
+            isOpen={showResetConfirm}
+            onClose={() => setShowResetConfirm(false)}
+            onConfirm={() => {
+              resetAll();
+              setShowResetConfirm(false);
+            }}
+          />
+
+          <DeleteAllModal 
+            isOpen={showDeleteAll}
+            onClose={() => setShowDeleteAll(false)}
+            onConfirm={() => {
+              hardReset();
+              setShowDeleteAll(false);
+            }}
+          />
+
+          <UploadModal 
+            isOpen={uploadModalOpen}
+            folderId={uploadModalFolderId}
+            folders={folders}
+            uploading={uploadingToFolder}
+            onClose={() => {
+              setUploadModalOpen(false);
+              setUploadModalFolderId(null);
+            }}
+            onUpload={handleUploadToFolder}
+          />
+
+          <OcrTextViewModal 
+            isOpen={!!viewingOcrText}
+            onClose={() => setViewingOcrText(null)}
+            ocrText={viewingOcrText}
+          />
+
+          <FileEditModal 
+            isOpen={!!editingFileId}
+            editingFileData={editingFileData}
+            folders={folders}
+            setEditingFileData={setEditingFileData}
+            onCancel={cancelFileEdit}
+            onSave={saveFileEdit}
+          />
         </div>
 
         <div className="mt-8 text-center text-gray-600 text-sm">
           <p>Spletna stran za pomoč pri kategorizaciji DZO dokumentov</p>
         </div>
-          <span className="text-xs text-gray-500">
-            v0.8
-          </span>
+        <span className="text-xs text-gray-500">v1.1</span>
       </div>
     </div>
   );

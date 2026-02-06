@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { defaultStructure } from './documentUtils';
-import { verifyPassword, processOCR, processAI} from './documentApi';
-import { saveFileToIndexedDB} from './indexedDBHelper';
+import { defaultStructure, generateDocCode, getFullPath } from './documentUtils';
+import { verifyPassword, processOCR, processAI, extractMetadataBatch } from './documentApi';
+import { saveFileToIndexedDB } from './indexedDBHelper';
 
 export const useDocumentState = () => {
   const [folders, setFolders] = useState(() => {
@@ -10,6 +10,12 @@ export const useDocumentState = () => {
   });
   
   const [files, setFiles] = useState([]);
+  
+  // Files uploaded directly to folders (skip OCR/AI classification)
+  const [directUploads, setDirectUploads] = useState(() => {
+    const saved = localStorage.getItem('directUploads');
+    return saved ? JSON.parse(saved) : [];
+  });
   
   const [currentStep, setCurrentStep] = useState(() => {
     const saved = localStorage.getItem('currentStep');
@@ -58,8 +64,27 @@ export const useDocumentState = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authError, setAuthError] = useState('');
   const [viewingOcrText, setViewingOcrText] = useState(null);
+  
+  // New state for file editing on review page
+  const [editingFileId, setEditingFileId] = useState(null);
+  const [editingFileData, setEditingFileData] = useState(null);
 
   const [authLoading, setAuthLoading] = useState(false);
+  
+  // Split finalization states
+  const [isMetadataExtracted, setIsMetadataExtracted] = useState(() => {
+    const saved = localStorage.getItem('isMetadataExtracted');
+    return saved ? JSON.parse(saved) : false;
+  });
+  
+  const [isFinalized, setIsFinalized] = useState(() => {
+    const saved = localStorage.getItem('isFinalized');
+    return saved ? JSON.parse(saved) : false;
+  });
+  
+  const [isExtractingMetadata, setIsExtractingMetadata] = useState(false);
+  const [isGeneratingCodes, setIsGeneratingCodes] = useState(false);
+  const [metadataProgress, setMetadataProgress] = useState(0);
 
   // Wrapper functions to save to localStorage
   const setFoldersWithSave = (newFolders) => {
@@ -102,6 +127,22 @@ export const useDocumentState = () => {
     setProcessedFilesCount(updated);
     localStorage.setItem('processedFilesCount', updated.toString());
   };
+  
+  const setDirectUploadsWithSave = (uploads) => {
+    const updated = typeof uploads === 'function' ? uploads(directUploads) : uploads;
+    setDirectUploads(updated);
+    localStorage.setItem('directUploads', JSON.stringify(updated));
+  };
+  
+  const setIsMetadataExtractedWithSave = (value) => {
+    setIsMetadataExtracted(value);
+    localStorage.setItem('isMetadataExtracted', JSON.stringify(value));
+  };
+  
+  const setIsFinalizedWithSave = (value) => {
+    setIsFinalized(value);
+    localStorage.setItem('isFinalized', JSON.stringify(value));
+  };
 
   // Folder management
   const toggleFolder = (id) => {
@@ -136,6 +177,40 @@ export const useDocumentState = () => {
   const deleteFolder = (id) => {
     setFoldersWithSave(folders.filter(f => f.id !== id && !f.id.startsWith(id + '.')));
   };
+  
+  const moveFolderUp = (id) => {
+    const index = folders.findIndex(f => f.id === id);
+    if (index <= 0) return;
+    
+    const folder = folders[index];
+    const prevFolder = folders[index - 1];
+    
+    if (folder.level !== prevFolder.level) return;
+    const folderParent = folder.id.split('.').slice(0, -1).join('.');
+    const prevParent = prevFolder.id.split('.').slice(0, -1).join('.');
+    if (folderParent !== prevParent) return;
+    
+    const newFolders = [...folders];
+    [newFolders[index - 1], newFolders[index]] = [newFolders[index], newFolders[index - 1]];
+    setFoldersWithSave(newFolders);
+  };
+  
+  const moveFolderDown = (id) => {
+    const index = folders.findIndex(f => f.id === id);
+    if (index === -1 || index >= folders.length - 1) return;
+    
+    const folder = folders[index];
+    const nextFolder = folders[index + 1];
+    
+    if (folder.level !== nextFolder.level) return;
+    const folderParent = folder.id.split('.').slice(0, -1).join('.');
+    const nextParent = nextFolder.id.split('.').slice(0, -1).join('.');
+    if (folderParent !== nextParent) return;
+    
+    const newFolders = [...folders];
+    [newFolders[index], newFolders[index + 1]] = [newFolders[index + 1], newFolders[index]];
+    setFoldersWithSave(newFolders);
+  };
 
   const startEdit = (id, name) => {
     setEditingId(id);
@@ -169,6 +244,33 @@ export const useDocumentState = () => {
 
   const removeFile = (indexToRemove) => {
     setFiles(files.filter((_, index) => index !== indexToRemove));
+  };
+  
+  // Direct upload to folder (no metadata extraction here)
+  const handleDirectUploadToFolder = async (folderId, uploadedFiles) => {
+    const newUploads = [];
+    
+    for (const file of uploadedFiles) {
+      await saveFileToIndexedDB(file.name, file);
+      
+      newUploads.push({
+        id: `direct_${Date.now()}_${Math.random()}`,
+        fileName: file.name,
+        folderId: folderId,
+        originalFile: file,
+        documentTitle: '',
+        issuer: '',
+        documentNumber: '',
+        date: '',
+      });
+    }
+    
+    setDirectUploadsWithSave([...directUploads, ...newUploads]);
+  };
+  
+  // Remove direct upload file
+  const removeDirectUpload = (fileId) => {
+    setDirectUploadsWithSave(directUploads.filter(f => f.id !== fileId));
   };
 
   // Authentication
@@ -205,7 +307,6 @@ export const useDocumentState = () => {
 
     const results = await processOCR(files, password, setOcrProgress, setOcrResultsWithSave);
     
-    // Save files to IndexedDB
     for (const result of results) {
       await saveFileToIndexedDB(result.fileName, result.originalFile);
     }
@@ -219,7 +320,6 @@ export const useDocumentState = () => {
     setAiLogs([]);
     setCurrentStepWithSave(4);
 
-    // Pass current folder counts and processed files count to AI processing
     const results = await processAI(
       ocrResults, 
       folders, 
@@ -227,13 +327,11 @@ export const useDocumentState = () => {
       setAiProgress, 
       setAiLogs,
       (newResults) => {
-        // Append to existing finalResults instead of replacing
         setFinalResultsWithSave(prev => [...prev, ...newResults]);
       },
-      folderCounts // Pass existing folder counts
+      folderCounts
     );
 
-    // Update folder counts after processing
     const newFolderCounts = { ...folderCounts };
     results.forEach(result => {
       const folderId = result.suggestedFolder.id;
@@ -244,14 +342,154 @@ export const useDocumentState = () => {
     });
     setFolderCountsWithSave(newFolderCounts);
 
-    // Append to processed files list
-    setProcessedFilesWithSave(prev => [
-      ...prev,
-      ...results.map(r => r.fileName)
-    ]);
-    setProcessedFilesCountWithSave(processedFilesCount + results.length);
-
     setAiProcessing(false);
+  };
+  
+  const moveToReviewPage = () => {
+    setCurrentStepWithSave(5);
+  };
+  
+  // File editing functions for review page
+  const startFileEdit = (fileId, fileData) => {
+    setEditingFileId(fileId);
+    setEditingFileData({ ...fileData });
+  };
+  
+  const saveFileEdit = () => {
+    if (!editingFileId || !editingFileData) return;
+    
+    setFinalResultsWithSave(prev => 
+      prev.map(f => f.id === editingFileId ? editingFileData : f)
+    );
+    
+    setDirectUploadsWithSave(prev =>
+      prev.map(f => f.id === editingFileId ? editingFileData : f)
+    );
+    
+    setEditingFileId(null);
+    setEditingFileData(null);
+  };
+  
+  const cancelFileEdit = () => {
+    setEditingFileId(null);
+    setEditingFileData(null);
+  };
+  
+  const removeFileFromReview = (fileId) => {
+    setFinalResultsWithSave(prev => prev.filter(f => f.id !== fileId));
+    setDirectUploadsWithSave(prev => prev.filter(f => f.id !== fileId));
+  };
+  
+  // STEP 1: Extract metadata for direct uploads
+  const extractMetadataForDirectUploads = async () => {
+    setIsExtractingMetadata(true);
+    setMetadataProgress(0);
+    
+    try {
+      if (directUploads.length > 0) {
+        const filesToExtract = await Promise.all(
+          directUploads.map(async (upload) => ({
+            file: await import('./indexedDBHelper').then(m => m.getFileFromIndexedDB(upload.fileName)),
+            fileName: upload.fileName
+          }))
+        );
+        
+        const metadata = await extractMetadataBatch(
+          filesToExtract, 
+          password, 
+          (progress) => setMetadataProgress(progress)
+        );
+        
+        const updatedDirectUploads = directUploads.map((upload, idx) => ({
+          ...upload,
+          documentTitle: metadata[idx]?.documentTitle || upload.documentTitle,
+          issuer: metadata[idx]?.issuer || upload.issuer,
+          documentNumber: metadata[idx]?.documentNumber || upload.documentNumber,
+          date: metadata[idx]?.date || upload.date,
+        }));
+        
+        setDirectUploadsWithSave(updatedDirectUploads);
+      }
+      
+      setIsMetadataExtractedWithSave(true);
+    } catch (error) {
+      console.error('Metadata extraction error:', error);
+      alert('Napaka pri izvlačenju metapodatkov');
+    } finally {
+      setIsExtractingMetadata(false);
+    }
+  };
+  
+  // STEP 2: Generate document codes
+  const generateDocumentCodes = async () => {
+    setIsGeneratingCodes(true);
+    
+    try {
+      // Combine all files
+      const allFiles = [
+        ...finalResults.map(f => ({ ...f, source: 'ai' })),
+        ...directUploads.map(f => ({ ...f, source: 'direct' }))
+      ];
+      
+      // Sort by folder ID
+      allFiles.sort((a, b) => {
+        const folderA = a.source === 'ai' ? a.suggestedFolder.id : a.folderId;
+        const folderB = b.source === 'ai' ? b.suggestedFolder.id : b.folderId;
+        return folderA.localeCompare(folderB);
+      });
+      
+      // Calculate file numbers per folder
+      const tempFolderCounts = {};
+      const finalizedFiles = allFiles.map(file => {
+        const folderId = file.source === 'ai' ? file.suggestedFolder.id : file.folderId;
+        
+        if (!tempFolderCounts[folderId]) {
+          tempFolderCounts[folderId] = 0;
+        }
+        tempFolderCounts[folderId]++;
+        
+        const fileNumber = tempFolderCounts[folderId];
+        const docCode = generateDocCode(folderId, folders) + '.' + String(fileNumber).padStart(3, '0');
+        
+        if (file.source === 'ai') {
+          return {
+            ...file,
+            fileNumber,
+            docCode,
+            id: file.id || `ai_${file.fileName}_${Date.now()}`
+          };
+        } else {
+          return {
+            ...file,
+            fileNumber,
+            docCode,
+            suggestedFolder: {
+              id: folderId,
+              name: folders.find(f => f.id === folderId)?.name || 'Unknown',
+              fullPath: getFullPath(folderId, folders)
+            }
+          };
+        }
+      });
+      
+      setFinalResultsWithSave(finalizedFiles);
+      setFolderCountsWithSave(tempFolderCounts);
+      setDirectUploadsWithSave([]);
+      
+      // FIXED: Only add files that aren't already in processedFiles
+      const newFileNames = finalizedFiles.map(r => r.fileName);
+      const uniqueNewFiles = newFileNames.filter(name => !processedFiles.includes(name));
+      
+      setProcessedFilesWithSave(prev => [...prev, ...uniqueNewFiles]);
+      setProcessedFilesCountWithSave(processedFilesCount + uniqueNewFiles.length);
+      
+      setIsFinalizedWithSave(true);
+    } catch (error) {
+      console.error('Code generation error:', error);
+      alert('Napaka pri generiranju kod dokumentov');
+    } finally {
+      setIsGeneratingCodes(false);
+    }
   };
 
   // Downloads
@@ -289,15 +527,20 @@ export const useDocumentState = () => {
     setOcrProgress(0);
     setAiProgress(0);
     setCurrentStepWithSave(1);
+    setIsMetadataExtractedWithSave(false);
+    setIsFinalizedWithSave(false);
     
     localStorage.removeItem('ocrResults');
     localStorage.removeItem('currentStep');
+    localStorage.removeItem('isMetadataExtracted');
+    localStorage.removeItem('isFinalized');
   };
 
   const hardReset = async () => {
     setFiles([]);
     setOcrResults([]);
     setFinalResults([]);
+    setDirectUploads([]);
     setAiLogs([]);
     setOcrProgress(0);
     setAiProgress(0);
@@ -306,8 +549,9 @@ export const useDocumentState = () => {
     setFolderCounts({});
     setFoldersWithSave(defaultStructure);
     setProcessedFiles([]);
+    setIsMetadataExtracted(false);
+    setIsFinalized(false);
     
-    // Clear all localStorage AND IndexedDB
     localStorage.clear();
     
     const { clearAllFiles } = await import('./indexedDBHelper');
@@ -337,19 +581,29 @@ export const useDocumentState = () => {
     processedFilesCount,
     folderCounts,
     processedFiles,
-
+    directUploads,
+    editingFileId,
+    editingFileData,
     authLoading,
+    isMetadataExtracted,
+    isFinalized,
+    isExtractingMetadata,
+    isGeneratingCodes,
+    metadataProgress,
     
     // Setters
     setEditingName,
     setPassword,
     setCurrentStep: setCurrentStepWithSave,
     setViewingOcrText,
+    setEditingFileData,
     
     // Handlers
     toggleFolder,
     addFolder,
     deleteFolder,
+    moveFolderUp,
+    moveFolderDown,
     startEdit,
     saveEdit,
     handleFileUpload,
@@ -361,5 +615,14 @@ export const useDocumentState = () => {
     handleDownloadExcel,
     resetAll,
     hardReset,
+    handleDirectUploadToFolder,
+    removeDirectUpload,
+    moveToReviewPage,
+    startFileEdit,
+    saveFileEdit,
+    cancelFileEdit,
+    removeFileFromReview,
+    extractMetadataForDirectUploads,
+    generateDocumentCodes,
   };
 };

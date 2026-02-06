@@ -52,7 +52,7 @@ export const processOCR = async (files, password, onProgress, onResult) => {
 export const processAI = async (ocrResults, folders, password, onProgress, onLog, onResult, existingFolderCounts = {}) => {
   const results = [];
   const logs = [];
-  const folderCounts = { ...existingFolderCounts }; // Start with existing counts
+  const folderCounts = { ...existingFolderCounts };
 
   logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: 'AI proces začet (GPT-5-mini) - paralelno procesiranje...' });
   onLog(logs);
@@ -65,6 +65,7 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
     onLog(logs);
 
     try {
+      // Classification
       const response = await fetch(`${API_BASE}/api/classify-batch`, {
         method: 'POST',
         headers: { 
@@ -82,7 +83,6 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
 
       const batchResponse = await response.json();
       
-      // Process batch results
       for (let j = 0; j < batchResponse.results.length; j++) {
         const item = batchResponse.results[j];
         const originalResult = batch[j];
@@ -100,6 +100,7 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
         });
 
         results.push({
+          id: `ai_${item.fileName}_${Date.now()}_${j}`,
           ...originalResult,
           suggestedFolder: item.classification.suggestedFolder,
           fileNumber: fileNumber,
@@ -116,7 +117,6 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
       onProgress(((i + batch.length) / ocrResults.length) * 100);
 
     } catch (error) {
-      // Handle batch error - mark all items in batch as failed
       for (const result of batch) {
         logs.push({ 
           time: new Date().toLocaleTimeString('sl-SI'), 
@@ -125,6 +125,7 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
         });
         
         results.push({
+          id: `ai_${result.fileName}_${Date.now()}`,
           ...result,
           suggestedFolder: { id: folders[0].id, name: folders[0].name, fullPath: folders[0].name },
           fileNumber: 1,
@@ -144,6 +145,39 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
   return results;
 };
 
+export const extractMetadataBatch = async (files, password, onProgress) => {
+  try {
+    const formData = new FormData();
+    
+    // Add all files to FormData
+    for (const fileData of files) {
+      formData.append('files', fileData.file);
+    }
+    
+    const response = await fetch(`${API_BASE}/api/extract-metadata-batch`, {
+      method: 'POST',
+      headers: { 'X-Password': password },
+      body: formData,
+    });
 
+    if (!response.ok) throw new Error('Batch metadata extraction failed');
 
-
+    const data = await response.json();
+    
+    if (onProgress) {
+      onProgress(100);
+    }
+    
+    return data.results;
+  } catch (error) {
+    console.error('Batch metadata extraction error:', error);
+    // Return empty metadata for all files on error
+    return files.map(f => ({
+      fileName: f.fileName,
+      documentTitle: "",
+      issuer: "",
+      documentNumber: "",
+      date: ""
+    }));
+  }
+};

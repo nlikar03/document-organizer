@@ -9,25 +9,50 @@ export const addWatermarkToPDF = async (pdfBytes, watermarkText) => {
     const pages = pdfDoc.getPages();
     if (pages.length === 0) return pdfBytes;
 
-    const firstPage = pages[0];
-    
-    const { width, height } = firstPage.getSize();
-    const rotationAngle = firstPage.getRotation().angle;
+    const page = pages[0];
+    const { width, height } = page.getSize();
+    const rotation = page.getRotation().angle % 360;
 
     const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
     const fontSize = 20;
-    const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
-    
     const margin = 30;
+    const textWidth = font.widthOfTextAtSize(watermarkText, fontSize);
+    const textHeight = fontSize; 
 
+    let x, y;
 
-    firstPage.drawText(watermarkText, {
-      x: width - textWidth - margin, 
-      y: height - margin - 15, 
+    // Logic for VISUAL Top-Right based on internal rotation
+    switch (rotation) {
+      case 90:
+        // Page is rotated 90 deg CCW internally
+        x = margin + textHeight; 
+        y = height - margin - textWidth;
+        break;
+      case 180:
+        // Page is upside down internally
+        x = margin + textWidth;
+        y = margin;
+        break;
+      case 270:
+        // Page is rotated 270 deg CCW internally
+        x = width - margin - textHeight;
+        y = margin + textWidth;
+        break;
+      case 0:
+      default:
+        // Standard orientation
+        x = width - textWidth - margin;
+        y = height - margin - textHeight;
+        break;
+    }
+
+    page.drawText(watermarkText, {
+      x,
+      y,
       size: fontSize,
-      font: font,
-      color: rgb(1, 0, 0),
-      rotate: degrees(rotationAngle), 
+      font,
+      color: rgb(1, 0, 0), // Red
+      rotate: degrees(rotation), 
     });
 
     return await pdfDoc.save();
@@ -40,7 +65,6 @@ export const addWatermarkToPDF = async (pdfBytes, watermarkText) => {
 export const downloadZipClientSide = async (finalResults, folders) => {
   const zip = new JSZip();
   
-  // Create folder structure
   const folderPaths = {};
   for (const folder of folders) {
     const parts = [];
@@ -55,14 +79,12 @@ export const downloadZipClientSide = async (finalResults, folders) => {
     zip.folder(path);
   }
   
-  // Add files
   for (const result of finalResults) {
     const file = await getFileFromIndexedDB(result.fileName);
     if (!file) continue;
     
     let fileBytes = await file.arrayBuffer();
     
-    // Add watermark to PDFs
     if (file.name.toLowerCase().endsWith('.pdf')) {
       fileBytes = await addWatermarkToPDF(fileBytes, result.docCode);
     }
@@ -87,7 +109,6 @@ export const downloadZipClientSide = async (finalResults, folders) => {
 };
 
 export const downloadExcelClientSide = async (finalResults, folders) => {
-  
   const buildFolderPath = (folderId) => {
     const parts = [];
     const ids = folderId.split('.');
@@ -96,31 +117,113 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
       const f = folders.find(x => x.id === pid);
       if (f) parts.push(f.name);
     }
-    return parts.join(' / ');
+    return parts;
   };
-  
-  const sorted = [...finalResults].sort((a, b) => 
+
+  // Sort by folder hierarchy
+  const sorted = [...finalResults].sort((a, b) =>
     a.suggestedFolder.id.localeCompare(b.suggestedFolder.id)
   );
-  
-  const data = [
-    ['Zap. št.', 'Originalno ime', 'Ime dokazila oz. na kaj se dokazilo nanaša', 'Izdajatelj', 'Št. dokazila', 'Datum', 'Kategorija', 'Koda dokumenta']
-  ];
-  
-  for (const res of sorted) {
-    data.push([
-      res.fileNumber,
-      res.fileName,
-      res.documentTitle || '',
-      res.issuer || '',
-      res.documentNumber || '',
-      res.date || '',
-      buildFolderPath(res.suggestedFolder.id),
-      res.docCode
-    ]);
-  }
-  
+
+  // Group by top-level folder
+  const grouped = {};
+  sorted.forEach(res => {
+    const pathArr = buildFolderPath(res.suggestedFolder.id);
+    const topFolder = pathArr[0] || 'Neznano';
+    if (!grouped[topFolder]) grouped[topFolder] = [];
+    grouped[topFolder].push({ ...res, __pathArr: pathArr });
+  });
+
+  const data = [];
+
+  // Column headers (UNCHANGED)
+  data.push([
+    'Zap. št.',
+    'Originalno ime',
+    'Ime dokazila oz. na kaj se dokazilo nanaša',
+    'Izdajatelj',
+    'Št. dokazila',
+    'Datum',
+    'Kategorija',
+    'Koda dokumenta'
+  ]);
+
+  const folderRowIndexes = [];
+
+  Object.keys(grouped).sort().forEach(topFolder => {
+    // === MAIN SECTION HEADER (like roman numeral section) ===
+    const sectionRowIndex = data.length;
+    data.push([topFolder.toUpperCase(), '', '', '', '', '', '', '']);
+    folderRowIndexes.push({ row: sectionRowIndex, type: 'section' });
+
+    let currentSub = null;
+
+    grouped[topFolder].forEach(res => {
+      const subFolder = res.__pathArr[1]; // second level folder
+
+      // === SUBTITLE ROW (like description row) ===
+      if (subFolder && subFolder !== currentSub) {
+        currentSub = subFolder;
+        const subRowIndex = data.length;
+        data.push([`- ${subFolder}`, '', '', '', '', '', '', '']);
+        folderRowIndexes.push({ row: subRowIndex, type: 'sub' });
+      }
+
+      // === NORMAL ITEM ROW (DATA) ===
+      data.push([
+        res.fileNumber,
+        res.fileName,
+        res.documentTitle || '',
+        res.issuer || '',
+        res.documentNumber || '',
+        res.date || '',
+        res.__pathArr.join(' / '),
+        res.docCode
+      ]);
+    });
+
+    // spacing row
+    data.push(['', '', '', '', '', '', '', '']);
+  });
+
   const ws = XLSX.utils.aoa_to_sheet(data);
+
+  // ===== STYLING =====
+  folderRowIndexes.forEach(info => {
+    for (let col = 0; col < 8; col++) {
+      const cellAddress = XLSX.utils.encode_cell({ r: info.row, c: col });
+      if (!ws[cellAddress]) continue;
+
+      if (info.type === 'section') {
+        ws[cellAddress].s = {
+          font: { bold: true, sz: 13 },
+          fill: { fgColor: { rgb: 'FFF2CC' } }, // light yellow
+          alignment: { vertical: 'center' }
+        };
+      }
+
+      if (info.type === 'sub') {
+        ws[cellAddress].s = {
+          font: { bold: true, italic: true },
+          fill: { fgColor: { rgb: 'E7F3FF' } }, // light blue
+          alignment: { vertical: 'center' }
+        };
+      }
+    }
+  });
+
+  // Column widths
+  ws['!cols'] = [
+    { wch: 10 },
+    { wch: 25 },
+    { wch: 45 },
+    { wch: 28 },
+    { wch: 18 },
+    { wch: 14 },
+    { wch: 35 },
+    { wch: 18 }
+  ];
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Seznam Dokumentov');
   XLSX.writeFile(wb, 'DZO_Dokumenti_Seznam.xlsx');
