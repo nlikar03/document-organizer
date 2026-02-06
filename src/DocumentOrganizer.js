@@ -1,8 +1,8 @@
 import React from 'react';
-import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, Loader2, Scan, Brain, Download, Eye } from 'lucide-react';
+import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, Loader2, Scan, Brain, Download, Eye, Save, FolderOpen } from 'lucide-react';
 import { useDocumentState } from './documentState';
 import { FolderTreeStep1, FolderTreeStep5, UploadModal } from './FolderTreeView';
-import { FolderFilesModal, ProcessedFilesModal, ResetConfirmModal, DeleteAllModal, OcrTextViewModal, FileEditModal } from './Modals';
+import { FolderFilesModal, ProcessedFilesModal, ResetConfirmModal, DeleteAllModal, OcrTextViewModal, FileEditModal, MetadataExtractionModal } from './Modals';
 
 export default function DocumentOrganizer() {
   const {
@@ -35,6 +35,8 @@ export default function DocumentOrganizer() {
     processedFiles,
     editingId,
     editingName,
+    showMetadataModal,
+    skippedAIClassification,
     setEditingName,
     setPassword,
     setCurrentStep,
@@ -49,6 +51,7 @@ export default function DocumentOrganizer() {
     saveEdit,
     handleFileUpload,
     removeFile,
+    removeAllFiles,
     handlePasswordSubmit,
     startOCRProcessing,
     startAIProcessing,
@@ -58,13 +61,18 @@ export default function DocumentOrganizer() {
     resetAll,
     handleDirectUploadToFolder,
     removeDirectUpload,
+    removeAllDirectUploads,
     moveToReviewPage,
     startFileEdit,
     saveFileEdit,
     cancelFileEdit,
     removeFileFromReview,
-    extractMetadataForDirectUploads,
+    openMetadataExtractionModal,
+    closeMetadataExtractionModal,
+    extractMetadataForSelectedFiles,
     generateDocumentCodes,
+    exportFolderStructure,
+    importFolderStructure,
   } = useDocumentState();
 
   // Modals
@@ -99,6 +107,25 @@ export default function DocumentOrganizer() {
     const folder = folders.find(f => f.id === folderId);
     setSelectedFolder(folder);
     setShowFolderFiles(true);
+  };
+
+  // Handle import
+  const handleImport = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const structure = JSON.parse(event.target.result);
+        importFolderStructure(structure);
+      } catch (error) {
+        alert('Napaka pri nalaganju strukture: Neveljavna JSON datoteka');
+      }
+    };
+    reader.readAsText(file);
+    // Reset input so same file can be uploaded again
+    e.target.value = '';
   };
 
   // Calculate total files for processed banner (only shows AFTER finalization)
@@ -279,13 +306,37 @@ export default function DocumentOrganizer() {
                     </p>
                   )}
                 </div>
-                <button
-                  onClick={() => addFolder('root', 0)}
-                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
-                >
-                  <Plus size={18} />
-                  Nova Mapa
-                </button>
+                <div className="flex gap-2">
+                  {/* Import button */}
+                  <label className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium cursor-pointer">
+                    <FolderOpen size={18} />
+                    Uvozi strukturo
+                    <input
+                      type="file"
+                      accept=".json"
+                      onChange={handleImport}
+                      className="hidden"
+                    />
+                  </label>
+                  
+                  {/* Export button */}
+                  <button
+                    onClick={exportFolderStructure}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                  >
+                    <Save size={18} />
+                    Shrani strukturo
+                  </button>
+                  
+                  {/* Add folder button */}
+                  <button
+                    onClick={() => addFolder('root', 0)}
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
+                  >
+                    <Plus size={18} />
+                    Nova Mapa
+                  </button>
+                </div>
               </div>
 
               <div className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50 mb-6 max-h-[500px] overflow-y-auto">
@@ -308,6 +359,19 @@ export default function DocumentOrganizer() {
                   handleDirectUploadToFolder={handleDirectUploadToFolder}
                 />
               </div>
+
+              {/* Remove all direct uploads button */}
+              {directUploads.length > 0 && (
+                <div className="mb-4 flex justify-end">
+                  <button
+                    onClick={removeAllDirectUploads}
+                    className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                  >
+                    <Trash2 size={18} />
+                    Odstrani datoteke ({directUploads.length})
+                  </button>
+                </div>
+              )}
 
               <div className="flex gap-4">
                 <button
@@ -374,7 +438,16 @@ export default function DocumentOrganizer() {
 
               {files.length > 0 && (
                 <div className="mb-6">
-                  <h3 className="font-bold text-gray-800 mb-3 text-lg">Izbrane Datoteke ({files.length}):</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="font-bold text-gray-800 text-lg">Izbrane Datoteke ({files.length}):</h3>
+                    <button
+                      onClick={removeAllFiles}
+                      className="flex items-center gap-2 px-3 py-1 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors text-sm font-medium"
+                    >
+                      <Trash2 size={14} />
+                      Odstrani vse
+                    </button>
+                  </div>
                   <div className="space-y-2 max-h-[300px] overflow-y-auto border border-gray-200 rounded-lg p-3">
                     {files.map((file, idx) => (
                       <div key={idx} className="flex items-center gap-3 bg-white border border-gray-200 p-3 rounded-lg">
@@ -580,7 +653,6 @@ export default function DocumentOrganizer() {
                     Preglejte in uredite dokumente pred finalizacijo
                   </p>
                 </div>
-                {/* Top right buttons removed from here */}
               </div>
 
               <div className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50 mb-6 max-h-[600px] overflow-y-auto">
@@ -594,59 +666,25 @@ export default function DocumentOrganizer() {
                 />
               </div>
 
-              {/* Metadata extraction progress */}
-              {isExtractingMetadata && (
-                <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-sm font-semibold text-blue-800">
-                      Izvlačenje metapodatkov...
-                    </span>
-                    <span className="text-sm text-blue-700 font-bold">{Math.round(metadataProgress)}%</span>
-                  </div>
-                  <div className="w-full bg-blue-200 rounded-full h-3 overflow-hidden">
-                    <div className="bg-blue-600 h-full transition-all duration-300 rounded-full" style={{ width: `${metadataProgress}%` }}></div>
-                  </div>
-                  <p className="text-xs text-blue-600 mt-2 flex items-center gap-2">
-                    <Loader2 className="animate-spin" size={12} />
-                    Obdelujem naložene datoteke...
-                  </p>
-                </div>
-              )}
-
               {/* Bottom Button Row */}
               <div className="flex gap-4">
                 <button
-                  onClick={() => setCurrentStep(4)}
+                  onClick={() => setCurrentStep(skippedAIClassification ? 1 : 4)}
                   className="flex-1 bg-gray-200 text-gray-700 py-4 px-6 rounded-lg font-bold hover:bg-gray-300 transition-colors text-lg"
                 >
                   ← Nazaj
                 </button>
 
-                {/* Moved: Metadata Button */}
+                {/* Metadata Button */}
                 <button
-                  onClick={extractMetadataForDirectUploads}
-                  disabled={isExtractingMetadata || isMetadataExtracted || directUploads.length === 0}
+                  onClick={openMetadataExtractionModal}
                   className="flex-1 bg-blue-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 text-lg"
                 >
-                  {isExtractingMetadata ? (
-                    <>
-                      <Loader2 className="animate-spin" size={20} />
-                      Pridobivanje...
-                    </>
-                  ) : isMetadataExtracted ? (
-                    <>
-                      <CheckCircle size={20} />
-                      Izvlečeno
-                    </>
-                  ) : (
-                    <>
-                      <Scan size={20} />
-                      Izvleci metapodatke
-                    </>
-                  )}
+                  <Scan size={20} />
+                  Izvleci metapodatke
                 </button>
 
-                {/* Moved: Generate Button */}
+                {/* Generate Button */}
                 <button
                   onClick={generateDocumentCodes}
                   disabled={isGeneratingCodes}
@@ -732,12 +770,22 @@ export default function DocumentOrganizer() {
             onCancel={cancelFileEdit}
             onSave={saveFileEdit}
           />
+
+          {/* Metadata Extraction Modal */}
+          <MetadataExtractionModal
+            isOpen={showMetadataModal}
+            onClose={closeMetadataExtractionModal}
+            directUploads={directUploads}
+            isExtracting={isExtractingMetadata}
+            progress={metadataProgress}
+            onExtract={extractMetadataForSelectedFiles}
+          />
         </div>
 
         <div className="mt-8 text-center text-gray-600 text-sm">
           <p>Spletna stran za pomoč pri kategorizaciji DZO dokumentov</p>
         </div>
-        <span className="text-xs text-gray-500">v1.1</span>
+        <span className="text-xs text-gray-500">v1.3</span>
       </div>
     </div>
   );

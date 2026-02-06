@@ -2,6 +2,9 @@ import React from 'react';
 import { CheckCircle, X, Save, FileText, Trash2, User, Calendar, Hash, Eye } from 'lucide-react';
 import { getFullPath } from './documentUtils';
 
+// Export the new modal
+export { MetadataExtractionModal } from './MetadataExtractionModal';
+
 export const FolderFilesModal = ({ isOpen, onClose, folder, files, folders }) => {
   if (!isOpen || !folder) return null;
 
@@ -139,7 +142,7 @@ export const ResetConfirmModal = ({ isOpen, onClose, onConfirm }) => {
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
+            className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
           >
             Da, nadaljuj
           </button>
@@ -170,7 +173,7 @@ export const DeleteAllModal = ({ isOpen, onClose, onConfirm }) => {
           </button>
           <button
             onClick={onConfirm}
-            className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
+            className="px-4 py-2 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700"
           >
             Da, nadaljuj
           </button>
@@ -365,7 +368,7 @@ export const FileEditModal = ({
               <div className="p-4 border-b bg-gray-100 flex items-center justify-between">
                 <span className="text-sm font-semibold text-gray-700 flex items-center gap-2">
                   <Eye size={16} />
-                  Predogled (nima še dodane šifre - doda se pri zip prenosu)
+                  Predogled
                 </span>
                 {pdfUrl && (
                   <button
