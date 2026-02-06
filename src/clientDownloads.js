@@ -120,12 +120,10 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
     return parts;
   };
 
-  // Sort by folder hierarchy
   const sorted = [...finalResults].sort((a, b) =>
     a.suggestedFolder.id.localeCompare(b.suggestedFolder.id)
   );
 
-  // Group by top-level folder
   const grouped = {};
   sorted.forEach(res => {
     const pathArr = buildFolderPath(res.suggestedFolder.id);
@@ -135,94 +133,122 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
   });
 
   const data = [];
+  const styleMap = []; // Track rows that need special styling
 
-  // Column headers (UNCHANGED)
-  data.push([
-    'Zap. št.',
-    'Originalno ime',
-    'Ime dokazila oz. na kaj se dokazilo nanaša',
-    'Izdajatelj',
-    'Št. dokazila',
-    'Datum',
-    'Kategorija',
-    'Koda dokumenta'
-  ]);
+  let rowIndex = 0;
 
-  const folderRowIndexes = [];
+  Object.keys(grouped).sort().forEach((topFolder, sectionIdx) => {
+    // === MAIN SECTION HEADER (Roman numeral + title) ===
+    const sectionRow = rowIndex;
+    data.push([topFolder, '', '', '', '', '']);
+    styleMap.push({ row: sectionRow, type: 'section' });
+    rowIndex++;
 
-  Object.keys(grouped).sort().forEach(topFolder => {
-    // === MAIN SECTION HEADER (like roman numeral section) ===
-    const sectionRowIndex = data.length;
-    data.push([topFolder.toUpperCase(), '', '', '', '', '', '', '']);
-    folderRowIndexes.push({ row: sectionRowIndex, type: 'section' });
+    
 
-    let currentSub = null;
+    // === TABLE HEADERS ===
+    const headerRow = rowIndex;
+    data.push(['zap. št.', 'ime dokazila oz. na kaj se dokazilo nanaša', 'Izdajatelj', 'št. dokazila', 'datum', '']);
+    styleMap.push({ row: headerRow, type: 'header' });
+    rowIndex++;
 
+    // === DATA ROWS ===
+    let itemNumber = 1;
     grouped[topFolder].forEach(res => {
-      const subFolder = res.__pathArr[1]; // second level folder
-
-      // === SUBTITLE ROW (like description row) ===
-      if (subFolder && subFolder !== currentSub) {
-        currentSub = subFolder;
-        const subRowIndex = data.length;
-        data.push([`- ${subFolder}`, '', '', '', '', '', '', '']);
-        folderRowIndexes.push({ row: subRowIndex, type: 'sub' });
-      }
-
-      // === NORMAL ITEM ROW (DATA) ===
       data.push([
-        res.fileNumber,
-        res.fileName,
-        res.documentTitle || '',
+        itemNumber++,
+        res.documentTitle || res.fileName,
         res.issuer || '',
         res.documentNumber || '',
         res.date || '',
-        res.__pathArr.join(' / '),
-        res.docCode
+        ''
       ]);
+      rowIndex++;
     });
 
-    // spacing row
-    data.push(['', '', '', '', '', '', '', '']);
+    // Empty row separator
+    data.push(['', '', '', '', '', '']);
+    rowIndex++;
   });
 
   const ws = XLSX.utils.aoa_to_sheet(data);
 
   // ===== STYLING =====
-  folderRowIndexes.forEach(info => {
-    for (let col = 0; col < 8; col++) {
-      const cellAddress = XLSX.utils.encode_cell({ r: info.row, c: col });
-      if (!ws[cellAddress]) continue;
-
-      if (info.type === 'section') {
-        ws[cellAddress].s = {
-          font: { bold: true, sz: 13 },
-          fill: { fgColor: { rgb: 'FFF2CC' } }, // light yellow
-          alignment: { vertical: 'center' }
-        };
+  styleMap.forEach(info => {
+    const cellAddress = XLSX.utils.encode_cell({ r: info.row, c: 0 });
+    
+    if (info.type === 'section') {
+      // Bold section header
+      ws[cellAddress].s = {
+        font: { bold: true, sz: 11 },
+        alignment: { horizontal: 'left', vertical: 'center' }
+      };
+    }
+    
+    if (info.type === 'description') {
+      // Italic description
+      ws[cellAddress].s = {
+        font: { italic: true, sz: 9 },
+        alignment: { horizontal: 'left', vertical: 'center', wrapText: true }
+      };
+    }
+    
+    if (info.type === 'header') {
+      // Bold headers for all columns
+      for (let col = 0; col < 6; col++) {
+        const headerCell = XLSX.utils.encode_cell({ r: info.row, c: col });
+        if (ws[headerCell]) {
+          ws[headerCell].s = {
+            font: { bold: true, sz: 10 },
+            alignment: { horizontal: 'center', vertical: 'center' },
+            border: {
+              top: { style: 'thin', color: { rgb: '000000' } },
+              bottom: { style: 'thin', color: { rgb: '000000' } }
+            }
+          };
+        }
       }
+    }
+  });
 
-      if (info.type === 'sub') {
-        ws[cellAddress].s = {
-          font: { bold: true, italic: true },
-          fill: { fgColor: { rgb: 'E7F3FF' } }, // light blue
-          alignment: { vertical: 'center' }
+  // Add borders to data rows
+  data.forEach((row, rowIdx) => {
+    if (styleMap.some(s => s.row === rowIdx)) return; // Skip styled rows
+    
+    for (let col = 0; col < 6; col++) {
+      const cellAddr = XLSX.utils.encode_cell({ r: rowIdx, c: col });
+      if (ws[cellAddr]) {
+        ws[cellAddr].s = {
+          border: {
+            left: { style: 'dotted', color: { rgb: 'CCCCCC' } },
+            right: { style: 'dotted', color: { rgb: 'CCCCCC' } },
+            bottom: { style: 'dotted', color: { rgb: 'CCCCCC' } }
+          }
         };
       }
     }
   });
 
-  // Column widths
+  // Column widths (matching the image proportions)
   ws['!cols'] = [
-    { wch: 10 },
-    { wch: 25 },
-    { wch: 45 },
-    { wch: 28 },
-    { wch: 18 },
-    { wch: 14 },
-    { wch: 35 },
-    { wch: 18 }
+    { wch: 8 },   // zap. št.
+    { wch: 45 },  // ime dokazila
+    { wch: 35 },  // izdajatelj
+    { wch: 20 },  // št. dokazila
+    { wch: 12 },  // datum
+    { wch: 5 }    // empty column
   ];
+
+  // Merge cells for section headers and descriptions
+  if (!ws['!merges']) ws['!merges'] = [];
+  styleMap.forEach(info => {
+    if (info.type === 'section' || info.type === 'description') {
+      ws['!merges'].push({
+        s: { r: info.row, c: 0 },
+        e: { r: info.row, c: 5 }
+      });
+    }
+  });
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Seznam Dokumentov');
