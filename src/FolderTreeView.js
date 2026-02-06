@@ -230,16 +230,27 @@ export const FolderTreeStep5 = ({
     const hasChildren = folders.some(f => 
       f.id.startsWith(folder.id + '.') && f.id.split('.').length === folder.id.split('.').length + 1
     );
+    const reviewFileMap = new Map();
+
+    finalResults.forEach(file => {
+      const key = file.id || file.fileName;
+      reviewFileMap.set(key, file);
+    });
+
+    directUploads.forEach(file => {
+      const key = file.id || file.fileName;
+      if (!reviewFileMap.has(key)) {
+        reviewFileMap.set(key, file);
+      }
+    });
+
+    const reviewFiles = Array.from(reviewFileMap.values());
+    const folderFiles = reviewFiles.filter(file => {
+      const fileFolderId = file.suggestedFolder?.id || file.folderId;
+      return fileFolderId === folder.id;
+    });
     
-    // Get direct files in this folder
-    const folderFiles = [
-      ...finalResults.filter(f => f.suggestedFolder?.id === folder.id),
-      ...directUploads.filter(f => f.folderId === folder.id)
-    ];
-    
-    // Count all files in this folder tree (including subfolders)
-    const allFiles = [...finalResults, ...directUploads];
-    const totalFileCount = countFilesInFolderTree(folder.id, allFiles);
+    const totalFileCount = countFilesInFolderTree(folder.id, reviewFiles);
 
     return (
       <div key={folder.id} style={{ marginLeft: `${folder.level * 24}px` }}>
@@ -262,7 +273,7 @@ export const FolderTreeStep5 = ({
         {folder.expanded && folderFiles.length > 0 && (
           <div className="ml-6 mt-1 space-y-1">
             {folderFiles.map((file) => {
-              const fileId = file.id || `${file.fileName}_${Date.now()}`;
+              const fileId = file.id || file.fileName;
               return (
                 <div 
                   key={fileId}

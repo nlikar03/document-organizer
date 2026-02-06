@@ -148,7 +148,15 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
 
     // === TABLE HEADERS ===
     const headerRow = rowIndex;
-    data.push(['zap. št.', 'ime dokazila oz. na kaj se dokazilo nanaša', 'Izdajatelj', 'št. dokazila', 'datum', '']);
+    data.push([
+      'zap. št.',
+      'ime dokazila oz. na kaj se dokazilo nanaša',
+      'Originalna datoteka',
+      'Izdajatelj',
+      'št. dokazila',
+      'datum'
+    ]);
+
     styleMap.push({ row: headerRow, type: 'header' });
     rowIndex++;
 
@@ -157,11 +165,11 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
     grouped[topFolder].forEach(res => {
       data.push([
         itemNumber++,
-        res.documentTitle || res.fileName,
+        res.documentTitle || '',
+        res.originalFileName || res.fileName || '',
         res.issuer || '',
         res.documentNumber || '',
-        res.date || '',
-        ''
+        res.date || ''
       ]);
       rowIndex++;
     });
@@ -234,6 +242,7 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
     { wch: 8 },   // zap. št.
     { wch: 45 },  // ime dokazila
     { wch: 35 },  // izdajatelj
+    { wch: 30 },
     { wch: 20 },  // št. dokazila
     { wch: 12 },  // datum
     { wch: 5 }    // empty column

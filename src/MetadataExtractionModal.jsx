@@ -17,7 +17,7 @@ export const MetadataExtractionModal = ({
     if (isOpen) {
       // Files that don't have metadata yet
       const filesWithoutMetadata = directUploads.filter(file => 
-        !file.issuer && !file.date && !file.documentNumber
+        !file.documentTitle || !file.issuer || !file.documentNumber || !file.date
       );
       setUnselectedFiles(filesWithoutMetadata);
       setSelectedFiles([]);

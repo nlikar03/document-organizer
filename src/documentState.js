@@ -373,7 +373,6 @@ export const useDocumentState = () => {
   // NEW: Remove all direct uploads
   const removeAllDirectUploads = () => {
     if (window.confirm(`Ste prepričani, da želite odstraniti vse ${directUploads.length} naložene datoteke?`)) {
-      setDirectUploadsWithSave([]);
     }
   };
 
@@ -518,22 +517,26 @@ export const useDocumentState = () => {
         (progress) => setMetadataProgress(progress)
       );
       
-      // Update only the selected files
-      const updatedDirectUploads = directUploads.map((upload) => {
-        const selectedIndex = selectedFiles.findIndex(sf => sf.id === upload.id);
-        if (selectedIndex !== -1) {
-          return {
-            ...upload,
-            documentTitle: metadata[selectedIndex]?.documentTitle || upload.documentTitle,
-            issuer: metadata[selectedIndex]?.issuer || upload.issuer,
-            documentNumber: metadata[selectedIndex]?.documentNumber || upload.documentNumber,
-            date: metadata[selectedIndex]?.date || upload.date,
-          };
-        }
-        return upload;
-      });
-      
-      setDirectUploadsWithSave(updatedDirectUploads);
+      const metadataById = selectedFiles.reduce((acc, file, index) => {
+        acc[file.id] = metadata[index] || {};
+        return acc;
+      }, {});
+
+      const applyMetadata = (file) => {
+        const extracted = metadataById[file.id];
+        if (!extracted) return file;
+
+        return {
+          ...file,
+          documentTitle: extracted.documentTitle || file.documentTitle,
+          issuer: extracted.issuer || file.issuer,
+          documentNumber: extracted.documentNumber || file.documentNumber,
+          date: extracted.date || file.date,
+        };
+      };
+
+      setDirectUploadsWithSave(prev => prev.map(applyMetadata));
+      setFinalResultsWithSave(prev => prev.map(applyMetadata));
       setShowMetadataModal(false);
     } catch (error) {
       console.error('Metadata extraction error:', error);
@@ -548,10 +551,16 @@ export const useDocumentState = () => {
     setIsGeneratingCodes(true);
     
     try {
-      // Combine all files
+      // Combine all files without duplicates (prefer already-reviewed finalResults entries)
+      const finalIds = new Set(finalResults.map(f => f.id).filter(Boolean));
+      const finalNames = new Set(finalResults.map(f => f.fileName));
+      const directOnlyFiles = directUploads.filter(f => {
+        if (f.id && finalIds.has(f.id)) return false;
+        return !finalNames.has(f.fileName);
+      });
       const allFiles = [
         ...finalResults.map(f => ({ ...f, source: 'ai' })),
-        ...directUploads.map(f => ({ ...f, source: 'direct' }))
+        ...directOnlyFiles.map(f => ({ ...f, source: 'direct' }))
       ];
       
       // Sort by folder ID
@@ -597,22 +606,44 @@ export const useDocumentState = () => {
       
       setFinalResultsWithSave(finalizedFiles);
       setFolderCountsWithSave(tempFolderCounts);
-      setDirectUploadsWithSave([]);
-      
-      // Only add files that aren't already in processedFiles
-      const newFileNames = finalizedFiles.map(r => r.fileName);
-      const uniqueNewFiles = newFileNames.filter(name => !processedFiles.includes(name));
-      
-      setProcessedFilesWithSave(prev => [...prev, ...uniqueNewFiles]);
-      setProcessedFilesCountWithSave(processedFilesCount + uniqueNewFiles.length);
-      
-      setIsFinalizedWithSave(true);
+
     } catch (error) {
       console.error('Code generation error:', error);
       alert('Napaka pri generiranju kod dokumentov');
     } finally {
       setIsGeneratingCodes(false);
     }
+  };
+
+  const hasRequiredMetadata = (file) => {
+    return Boolean(
+      file.documentTitle &&
+      file.issuer &&
+      file.documentNumber &&
+      file.date
+    );
+  };
+
+  const finalizeDocuments = () => {
+    if (finalResults.length === 0) {
+      alert('Najprej generirajte šifre dokumentov.');
+      return;
+    }
+
+    const hasMissingCodes = finalResults.some(file => !file.docCode);
+    if (hasMissingCodes) {
+      alert('Vsi dokumenti morajo imeti generirano šifro pred finalizacijo.');
+      return;
+    }
+
+    
+
+    const newFileNames = finalResults.map(r => r.fileName);
+    const uniqueNewFiles = newFileNames.filter(name => !processedFiles.includes(name));
+
+    setProcessedFilesWithSave(prev => [...prev, ...uniqueNewFiles]);
+    setProcessedFilesCountWithSave(processedFilesCount + uniqueNewFiles.length);
+    setIsFinalizedWithSave(true);
   };
   
   // NEW: Export folder structure
@@ -793,6 +824,7 @@ export const useDocumentState = () => {
     closeMetadataExtractionModal,
     extractMetadataForSelectedFiles,
     generateDocumentCodes,
+    finalizeDocuments,
     exportFolderStructure,
     importFolderStructure,
   };

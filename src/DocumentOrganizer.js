@@ -26,7 +26,6 @@ export default function DocumentOrganizer() {
     editingFileId,
     editingFileData,
     authLoading,
-    isMetadataExtracted,
     isFinalized,
     isExtractingMetadata,
     isGeneratingCodes,
@@ -71,6 +70,7 @@ export default function DocumentOrganizer() {
     closeMetadataExtractionModal,
     extractMetadataForSelectedFiles,
     generateDocumentCodes,
+    finalizeDocuments,
     exportFolderStructure,
     importFolderStructure,
   } = useDocumentState();
@@ -130,6 +130,8 @@ export default function DocumentOrganizer() {
 
   // Calculate total files for processed banner (only shows AFTER finalization)
   const totalFilesForBanner = isFinalized ? processedFilesCount : 0;
+
+  const metadataExtractionFiles = finalResults.length > 0 ? finalResults : directUploads;
 
   // Authentication screen
   if (!isAuthenticated) {
@@ -695,17 +697,20 @@ export default function DocumentOrganizer() {
                       <Loader2 className="animate-spin" size={20} />
                       Generiram...
                     </>
-                  ) : isFinalized ? (
-                    <>
-                      <CheckCircle size={20} />
-                      Ponovno generiraj
-                    </>
                   ) : (
                     <>
                       <CheckCircle size={20} />
                       Generiraj šifre
                     </>
                   )}
+                </button>
+                <button
+                  onClick={finalizeDocuments}
+                  disabled={!finalResults.length || isGeneratingCodes}
+                  className="flex-1 bg-emerald-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 text-lg"
+                >
+                  <CheckCircle size={20} />
+                  Procesiraj
                 </button>
               </div>
             </div>
@@ -775,7 +780,7 @@ export default function DocumentOrganizer() {
           <MetadataExtractionModal
             isOpen={showMetadataModal}
             onClose={closeMetadataExtractionModal}
-            directUploads={directUploads}
+            directUploads={metadataExtractionFiles}
             isExtracting={isExtractingMetadata}
             progress={metadataProgress}
             onExtract={extractMetadataForSelectedFiles}
