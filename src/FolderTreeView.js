@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, Edit2, Plus, Trash2, ChevronRight, ChevronDown, FileText, Loader2, ArrowUp, ArrowDown, Eye, User, Calendar, Hash } from 'lucide-react';
+import { Upload, Edit2, Plus, Trash2, ChevronRight, ChevronDown, FileText, Loader2, ArrowUp, ArrowDown, Eye, User, Calendar, Hash, Brain } from 'lucide-react';
 import { getFullPath } from './documentUtils';
 import { ContextMenu } from './ContextMenu';
 
@@ -274,6 +274,8 @@ export const FolderTreeStep5 = ({
           <div className="ml-6 mt-1 space-y-1">
             {folderFiles.map((file) => {
               const fileId = file.id || file.fileName;
+              // Check if file is AI-classified (has suggestedFolder AND is not a direct upload)
+              const isAIClassified = Boolean(file.suggestedFolder) && !file.isDirectUpload;
               return (
                 <div 
                   key={fileId}
@@ -281,7 +283,15 @@ export const FolderTreeStep5 = ({
                 >
                   <FileText size={16} className="text-blue-600 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{file.fileName}</p>
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="text-sm font-medium text-gray-800 truncate">{file.fileName}</p>
+                      {isAIClassified && (
+                        <span className="flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-semibold flex-shrink-0">
+                          <Brain size={12} />
+                          AI Klasificiran
+                        </span>
+                      )}
+                    </div>
                     <div className="flex gap-3 text-xs text-gray-500">
                       {file.issuer && (
                         <span className="flex items-center gap-1">

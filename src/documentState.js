@@ -359,6 +359,8 @@ export const useDocumentState = () => {
         issuer: '',
         documentNumber: '',
         date: '',
+        // IMPORTANT: Mark as direct upload (not AI classified)
+        isDirectUpload: true,
       });
     }
     
@@ -373,6 +375,7 @@ export const useDocumentState = () => {
   // NEW: Remove all direct uploads
   const removeAllDirectUploads = () => {
     if (window.confirm(`Ste prepričani, da želite odstraniti vse ${directUploads.length} naložene datoteke?`)) {
+      setDirectUploadsWithSave([]);
     }
   };
 
@@ -591,20 +594,40 @@ export const useDocumentState = () => {
             id: file.id || `ai_${file.fileName}_${Date.now()}`
           };
         } else {
+          // IMPORTANT: Don't add suggestedFolder to direct uploads
+          // Keep them as direct uploads with only folderId
           return {
             ...file,
             fileNumber,
             docCode,
-            suggestedFolder: {
-              id: folderId,
-              name: folders.find(f => f.id === folderId)?.name || 'Unknown',
-              fullPath: getFullPath(folderId, folders)
-            }
+            // Keep the original direct upload marker
+            isDirectUpload: true,
           };
         }
       });
       
-      setFinalResultsWithSave(finalizedFiles);
+      // Separate back into AI and direct files
+      const aiFiles = finalizedFiles.filter(f => f.source === 'ai').map(f => {
+        const { source, ...rest } = f;
+        return rest;
+      });
+      
+      const directFiles = finalizedFiles.filter(f => f.source === 'direct').map(f => {
+        const { source, ...rest } = f;
+        return rest;
+      });
+      
+      setFinalResultsWithSave(aiFiles);
+      setDirectUploadsWithSave(prev => {
+        // Update only the direct files that were included in code generation
+        const directFileIds = new Set(directFiles.map(f => f.id));
+        return prev.map(file => {
+          if (directFileIds.has(file.id)) {
+            return directFiles.find(f => f.id === file.id);
+          }
+          return file;
+        });
+      });
       setFolderCountsWithSave(tempFolderCounts);
 
     } catch (error) {
@@ -625,20 +648,21 @@ export const useDocumentState = () => {
   };
 
   const finalizeDocuments = () => {
-    if (finalResults.length === 0) {
+    // Combine both AI and direct files for finalization check
+    const allReviewFiles = [...finalResults, ...directUploads];
+    
+    if (allReviewFiles.length === 0) {
       alert('Najprej generirajte šifre dokumentov.');
       return;
     }
 
-    const hasMissingCodes = finalResults.some(file => !file.docCode);
+    const hasMissingCodes = allReviewFiles.some(file => !file.docCode);
     if (hasMissingCodes) {
       alert('Vsi dokumenti morajo imeti generirano šifro pred finalizacijo.');
       return;
     }
 
-    
-
-    const newFileNames = finalResults.map(r => r.fileName);
+    const newFileNames = allReviewFiles.map(r => r.fileName);
     const uniqueNewFiles = newFileNames.filter(name => !processedFiles.includes(name));
 
     setProcessedFilesWithSave(prev => [...prev, ...uniqueNewFiles]);
@@ -688,7 +712,9 @@ export const useDocumentState = () => {
     setIsDownloading(true);
     try {
       const { downloadZipClientSide } = await import('./clientDownloads');
-      await downloadZipClientSide(finalResults, folders);
+      // Combine AI and direct files for download
+      const allFiles = [...finalResults, ...directUploads];
+      await downloadZipClientSide(allFiles, folders);
     } catch (error) {
       console.error('Download failed:', error);
       alert(`Prenos ZIP datoteke ni uspel: ${error.message}`);
@@ -701,7 +727,9 @@ export const useDocumentState = () => {
     setIsDownloadingExcel(true);
     try {
       const { downloadExcelClientSide } = await import('./clientDownloads');
-      await downloadExcelClientSide(finalResults, folders);
+      // Combine AI and direct files for Excel
+      const allFiles = [...finalResults, ...directUploads];
+      await downloadExcelClientSide(allFiles, folders);
     } catch (error) {
       console.error('Excel download failed:', error);
       alert(`Prenos Excel datoteke ni uspel: ${error.message}`);

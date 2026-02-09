@@ -109,6 +109,30 @@ export default function DocumentOrganizer() {
     setShowFolderFiles(true);
   };
 
+
+  //dragging
+  const [isDragging, setIsDragging] = React.useState(false);
+
+  const handleDragOver = (e) => {
+    e.preventDefault(); // This is crucial: it prevents the browser from opening the file
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = () => {
+    setIsDragging(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault(); // Prevents browser opening the file
+    setIsDragging(false);
+    
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length > 0) {
+      // We "mimic" the event structure that your existing handleFileUpload expects
+      handleFileUpload({ target: { files: droppedFiles } });
+    }
+  };
+
   // Handle import
   const handleImport = (e) => {
     const file = e.target.files[0];
@@ -131,7 +155,26 @@ export default function DocumentOrganizer() {
   // Calculate total files for processed banner (only shows AFTER finalization)
   const totalFilesForBanner = isFinalized ? processedFilesCount : 0;
 
-  const metadataExtractionFiles = finalResults.length > 0 ? finalResults : directUploads;
+  // FIXED: Always combine finalResults and directUploads for metadata extraction
+  const metadataExtractionFiles = (() => {
+    const combined = new Map();
+    
+    // Add finalResults first (AI classified)
+    finalResults.forEach(file => {
+      const key = file.id || file.fileName;
+      combined.set(key, file);
+    });
+    
+    // Add directUploads (manual uploads) - only if not already in finalResults
+    directUploads.forEach(file => {
+      const key = file.id || file.fileName;
+      if (!combined.has(key)) {
+        combined.set(key, file);
+      }
+    });
+    
+    return Array.from(combined.values());
+  })();
 
   // Authentication screen
   if (!isAuthenticated) {
@@ -214,7 +257,7 @@ export default function DocumentOrganizer() {
             <FolderTree className="text-indigo-600" size={40} />
             Organizator Dokumentov DZO
           </h1>
-          <p className="text-gray-600 mb-8">AI klasifikacija dokumentov z OCR tehnologijo</p>
+          <p className="text-gray-600 mb-8">AI klasifikacija dokumentov z OCR</p>
 
           {/* Processed files banner - only shown AFTER finalization */}
           {isFinalized && totalFilesForBanner > 0 && (
@@ -401,8 +444,17 @@ export default function DocumentOrganizer() {
                 <h2 className="text-2xl font-bold text-gray-800">Naloži Dokumente za Auto-Klasifikacijo</h2>
               </div>
               
-              <div className="border-2 border-dashed border-gray-300 rounded-lg p-12 text-center hover:border-indigo-500 transition-colors mb-6">
-                <Upload className="mx-auto text-gray-400 mb-4" size={64} />
+              <div 
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                className={`border-2 border-dashed rounded-lg p-12 text-center transition-all mb-6 ${
+                  isDragging 
+                    ? 'border-indigo-600 bg-indigo-50 scale-[1.02]' 
+                    : 'border-gray-300 hover:border-indigo-500 bg-transparent'
+                }`}
+              >
+                <Upload className={`mx-auto mb-4 transition-colors ${isDragging ? 'text-indigo-600' : 'text-gray-400'}`} size={64} />
                 <input
                   type="file"
                   multiple
@@ -413,9 +465,9 @@ export default function DocumentOrganizer() {
                 />
                 <label htmlFor="file-upload" className="cursor-pointer">
                   <span className="text-indigo-600 font-semibold hover:text-indigo-700 text-lg">
-                    Kliknite za nalaganje
+                    {isDragging ? 'Spustite datoteke tukaj' : 'Kliknite za nalaganje'}
                   </span>
-                  <span className="text-gray-600 text-lg"> ali povlecite datoteke</span>
+                  {!isDragging && <span className="text-gray-600 text-lg"> ali povlecite datoteke</span>}
                 </label>
                 <p className="text-sm text-gray-500 mt-3">PDF, PNG, JPG, JPEG do 150MB</p>
               </div>
@@ -706,7 +758,7 @@ export default function DocumentOrganizer() {
                 </button>
                 <button
                   onClick={finalizeDocuments}
-                  disabled={!finalResults.length || isGeneratingCodes}
+                  disabled={!finalResults.length && !directUploads.length || isGeneratingCodes}
                   className="flex-1 bg-emerald-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 text-lg"
                 >
                   <CheckCircle size={20} />
