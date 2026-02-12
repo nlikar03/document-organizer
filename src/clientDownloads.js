@@ -24,23 +24,19 @@ export const addWatermarkToPDF = async (pdfBytes, watermarkText) => {
     // Logic for VISUAL Top-Right based on internal rotation
     switch (rotation) {
       case 90:
-        // Page is rotated 90 deg CCW internally
         x = margin + textHeight; 
         y = height - margin - textWidth;
         break;
       case 180:
-        // Page is upside down internally
         x = margin + textWidth;
         y = margin;
         break;
       case 270:
-        // Page is rotated 270 deg CCW internally
         x = width - margin - textHeight;
         y = margin + textWidth;
         break;
       case 0:
       default:
-        // Standard orientation
         x = width - textWidth - margin;
         y = height - margin - textHeight;
         break;
@@ -51,7 +47,7 @@ export const addWatermarkToPDF = async (pdfBytes, watermarkText) => {
       y,
       size: fontSize,
       font,
-      color: rgb(1, 0, 0), // Red
+      color: rgb(1, 0, 0),
       rotate: degrees(rotation), 
     });
 
@@ -60,6 +56,13 @@ export const addWatermarkToPDF = async (pdfBytes, watermarkText) => {
     console.error('Watermark error:', error);
     return pdfBytes;
   }
+};
+
+// Helper: get the folder ID regardless of whether file is a direct upload or AI-classified
+const getFolderId = (result) => {
+  // AI-classified files have suggestedFolder.id
+  // Direct uploads have folderId (string)
+  return result.suggestedFolder?.id ?? result.folderId;
 };
 
 export const downloadZipClientSide = async (finalResults, folders) => {
@@ -92,7 +95,15 @@ export const downloadZipClientSide = async (finalResults, folders) => {
     const base = file.name.substring(0, file.name.lastIndexOf('.'));
     const ext = file.name.substring(file.name.lastIndexOf('.'));
     const newName = `${String(result.fileNumber).padStart(3, '0')}_${base}${ext}`;
-    const path = `${folderPaths[result.suggestedFolder.id]}/${newName}`;
+
+    // FIX: use getFolderId() to support both direct uploads and AI-classified files
+    const folderId = getFolderId(result);
+    const folderPath = folderPaths[folderId];
+    if (!folderPath) {
+      console.warn(`No folder path found for folderId "${folderId}" on file "${result.fileName}" — skipping.`);
+      continue;
+    }
+    const path = `${folderPath}/${newName}`;
     
     zip.file(path, fileBytes);
   }
@@ -120,31 +131,31 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
     return parts;
   };
 
+  // FIX: use getFolderId() to support both direct uploads and AI-classified files
   const sorted = [...finalResults].sort((a, b) =>
-    a.suggestedFolder.id.localeCompare(b.suggestedFolder.id)
+    getFolderId(a).localeCompare(getFolderId(b))
   );
 
   const grouped = {};
   sorted.forEach(res => {
-    const pathArr = buildFolderPath(res.suggestedFolder.id);
+    const folderId = getFolderId(res);
+    const pathArr = buildFolderPath(folderId);
     const topFolder = pathArr[0] || 'Neznano';
     if (!grouped[topFolder]) grouped[topFolder] = [];
     grouped[topFolder].push({ ...res, __pathArr: pathArr });
   });
 
   const data = [];
-  const styleMap = []; // Track rows that need special styling
+  const styleMap = [];
 
   let rowIndex = 0;
 
-  Object.keys(grouped).sort().forEach((topFolder, sectionIdx) => {
-    // === MAIN SECTION HEADER (Roman numeral + title) ===
+  Object.keys(grouped).sort().forEach((topFolder) => {
+    // === MAIN SECTION HEADER ===
     const sectionRow = rowIndex;
     data.push([topFolder, '', '', '', '', '']);
     styleMap.push({ row: sectionRow, type: 'section' });
     rowIndex++;
-
-    
 
     // === TABLE HEADERS ===
     const headerRow = rowIndex;
@@ -156,7 +167,6 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
       'št. dokazila',
       'datum'
     ]);
-
     styleMap.push({ row: headerRow, type: 'header' });
     rowIndex++;
 
@@ -186,7 +196,6 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
     const cellAddress = XLSX.utils.encode_cell({ r: info.row, c: 0 });
     
     if (info.type === 'section') {
-      // Bold section header
       ws[cellAddress].s = {
         font: { bold: true, sz: 11 },
         alignment: { horizontal: 'left', vertical: 'center' }
@@ -194,7 +203,6 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
     }
     
     if (info.type === 'description') {
-      // Italic description
       ws[cellAddress].s = {
         font: { italic: true, sz: 9 },
         alignment: { horizontal: 'left', vertical: 'center', wrapText: true }
@@ -202,7 +210,6 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
     }
     
     if (info.type === 'header') {
-      // Bold headers for all columns
       for (let col = 0; col < 6; col++) {
         const headerCell = XLSX.utils.encode_cell({ r: info.row, c: col });
         if (ws[headerCell]) {
@@ -221,7 +228,7 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
 
   // Add borders to data rows
   data.forEach((row, rowIdx) => {
-    if (styleMap.some(s => s.row === rowIdx)) return; // Skip styled rows
+    if (styleMap.some(s => s.row === rowIdx)) return;
     
     for (let col = 0; col < 6; col++) {
       const cellAddr = XLSX.utils.encode_cell({ r: rowIdx, c: col });
@@ -237,18 +244,16 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
     }
   });
 
-  // Column widths (matching the image proportions)
   ws['!cols'] = [
-    { wch: 8 },   // zap. št.
-    { wch: 45 },  // ime dokazila
-    { wch: 35 },  // izdajatelj
+    { wch: 8 },
+    { wch: 45 },
+    { wch: 35 },
     { wch: 30 },
-    { wch: 20 },  // št. dokazila
-    { wch: 12 },  // datum
-    { wch: 5 }    // empty column
+    { wch: 20 },
+    { wch: 12 },
+    { wch: 5 }
   ];
 
-  // Merge cells for section headers and descriptions
   if (!ws['!merges']) ws['!merges'] = [];
   styleMap.forEach(info => {
     if (info.type === 'section' || info.type === 'description') {
