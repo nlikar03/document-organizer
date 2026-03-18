@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircle, X, Save, FileText, Trash2, User, Calendar, Hash, Eye } from 'lucide-react';
+import { CheckCircle, X, Save, Trash2, User, Calendar, Hash, Eye, FileText, Loader2, AlertTriangle } from 'lucide-react';
 import { getFullPath } from './documentUtils';
 
 // Export the new modal
@@ -87,6 +87,147 @@ export const FolderFilesModal = ({ isOpen, onClose, folder, files, folders }) =>
     </div>
   );
 };
+
+// Step 1: Ask about watermark before starting
+export const MergedPDFWatermarkModal = ({ isOpen, onConfirm, onCancel }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+        <div className="p-6 border-b flex items-center gap-3">
+          <FileText className="text-red-600" size={24} />
+          <h3 className="text-xl font-bold text-gray-800">Združen PDF</h3>
+        </div>
+        <div className="p-6">
+          <p className="text-gray-700 mb-2 font-medium">Ali želite dodati rdeče šifre dokumentov?</p>
+          <p className="text-sm text-gray-500">Vodni znak bo dodan v zgornji desni kot vsake strani.</p>
+        </div>
+        <div className="p-6 border-t flex justify-end gap-3">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 bg-gray-200 rounded-lg font-semibold hover:bg-gray-300"
+          >
+            Prekliči
+          </button>
+          <button
+            onClick={() => onConfirm(false)}
+            className="px-4 py-2 bg-gray-700 text-white rounded-lg font-semibold hover:bg-gray-800"
+          >
+            Brez vodnega znaka
+          </button>
+          <button
+            onClick={() => onConfirm(true)}
+            className="px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700"
+          >
+            Z vodnim znakom
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+ 
+// Step 2: Show result + any skipped file warnings
+export const MergedPDFResultModal = ({ isOpen, onClose, result }) => {
+  if (!isOpen || !result) return null;
+ 
+  const hasWarnings = result.skippedDocx?.length > 0 || result.skippedOther?.length > 0 || result.skippedMissing?.length > 0;
+ 
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col">
+        <div className="p-6 border-b flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {result.success
+              ? <CheckCircle className="text-green-500" size={24} />
+              : <AlertTriangle className="text-red-500" size={24} />
+            }
+            <h3 className="text-xl font-bold text-gray-800">
+              {result.success ? 'Združevanje zaključeno' : 'Ni datotek za združitev'}
+            </h3>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 p-1">
+            <X size={20} />
+          </button>
+        </div>
+ 
+        <div className="p-6 overflow-y-auto flex-1 space-y-4">
+          {result.success && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+              <p className="text-green-800 font-semibold">
+                PDF uspešno ustvarjen — {result.totalPages} {result.totalPages === 1 ? 'stran' : 'strani'}
+              </p>
+            </div>
+          )}
+ 
+          {result.skippedDocx?.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <p className="text-amber-800 font-semibold mb-2 flex items-center gap-2">
+                <AlertTriangle size={16} />
+                Word datoteke preskočene ({result.skippedDocx.length}) — pretvorba DOCX ni podprta
+              </p>
+              <ul className="text-sm text-amber-700 space-y-1 max-h-40 overflow-y-auto">
+                {result.skippedDocx.map((name, i) => <li key={i} className="truncate">• {name}</li>)}
+              </ul>
+            </div>
+          )}
+ 
+          {result.skippedOther?.length > 0 && (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-red-800 font-semibold mb-2 flex items-center gap-2">
+                <AlertTriangle size={16} />
+                Nepodprte datoteke preskočene ({result.skippedOther.length})
+              </p>
+              <ul className="text-sm text-red-700 space-y-1 max-h-40 overflow-y-auto">
+                {result.skippedOther.map((name, i) => <li key={i} className="truncate">• {name}</li>)}
+              </ul>
+            </div>
+          )}
+ 
+          {result.skippedMissing?.length > 0 && (
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <p className="text-gray-800 font-semibold mb-2 flex items-center gap-2">
+                <AlertTriangle size={16} />
+                Datoteke niso bile najdene ({result.skippedMissing.length})
+              </p>
+              <ul className="text-sm text-gray-600 space-y-1 max-h-40 overflow-y-auto">
+                {result.skippedMissing.map((name, i) => <li key={i} className="truncate">• {name}</li>)}
+              </ul>
+            </div>
+          )}
+ 
+          {!result.success && !hasWarnings && (
+            <p className="text-gray-600 text-sm">Ni nobene PDF ali slikovne datoteke za združitev.</p>
+          )}
+        </div>
+ 
+        <div className="p-4 border-t flex justify-end">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-semibold hover:bg-indigo-700"
+          >
+            Zapri
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+ 
+// Loading overlay shown while merging
+export const MergedPDFLoadingModal = ({ isOpen }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-lg shadow-xl p-8 flex flex-col items-center gap-4">
+        <Loader2 className="animate-spin text-indigo-600" size={40} />
+        <p className="text-gray-800 font-semibold">Združujem PDF datoteke...</p>
+        <p className="text-gray-500 text-sm">To lahko traja nekaj trenutkov</p>
+      </div>
+    </div>
+  );
+};
+
 
 export const ProcessedFilesModal = ({ isOpen, onClose, processedFiles }) => {
   if (!isOpen) return null;

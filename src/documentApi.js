@@ -145,15 +145,13 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
   return results;
 };
 
-export const extractMetadataBatch = async (files, password, onProgress) => {
+export const extractMetadataBatch = async (files, password) => {
   try {
     const formData = new FormData();
-    
-    // Add all files to FormData
     for (const fileData of files) {
       formData.append('files', fileData.file);
     }
-    
+
     const response = await fetch(`${API_BASE}/api/extract-metadata-batch`, {
       method: 'POST',
       headers: { 'X-Password': password },
@@ -163,21 +161,15 @@ export const extractMetadataBatch = async (files, password, onProgress) => {
     if (!response.ok) throw new Error('Batch metadata extraction failed');
 
     const data = await response.json();
-    
-    if (onProgress) {
-      onProgress(100);
-    }
-    
     return data.results;
   } catch (error) {
     console.error('Batch metadata extraction error:', error);
-    // Return empty metadata for all files on error
     return files.map(f => ({
       fileName: f.fileName,
-      documentTitle: "",
-      issuer: "",
-      documentNumber: "",
-      date: ""
+      documentTitle: '',
+      issuer: '',
+      documentNumber: '',
+      date: '',
     }));
   }
 };

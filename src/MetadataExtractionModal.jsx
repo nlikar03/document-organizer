@@ -1,7 +1,48 @@
 import React from 'react';
 import { X, ArrowRight, Loader2, Scan, CheckCircle, FileText } from 'lucide-react';
 
-export const MetadataExtractionModal = ({ 
+// Error boundary prevents the whole page from going blank if the modal crashes
+class ModalErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error('MetadataExtractionModal crashed:', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <h3 className="text-lg font-bold text-red-700 mb-2">Napaka pri prikazu</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              {this.state.error?.message || 'Prišlo je do nepričakovane napake.'}
+            </p>
+            <button
+              onClick={() => {
+                this.setState({ hasError: false, error: null });
+                this.props.onClose?.();
+              }}
+              className="px-4 py-2 bg-gray-200 rounded-lg font-semibold hover:bg-gray-300"
+            >
+              Zapri
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+const MetadataExtractionModalInner = ({ 
   isOpen, 
   onClose, 
   directUploads,
@@ -12,17 +53,22 @@ export const MetadataExtractionModal = ({
   const [unselectedFiles, setUnselectedFiles] = React.useState([]);
   const [selectedFiles, setSelectedFiles] = React.useState([]);
 
+  // Safely normalize directUploads — never let undefined/null crash the modal
+  const safeUploads = React.useMemo(() => {
+    if (!Array.isArray(directUploads)) return [];
+    return directUploads.filter(f => f && f.id != null);
+  }, [directUploads]);
+
   // Initialize files when modal opens
   React.useEffect(() => {
     if (isOpen) {
-      // Files that don't have metadata yet
-      const filesWithoutMetadata = directUploads.filter(file => 
+      const filesWithoutMetadata = safeUploads.filter(file => 
         !file.documentTitle || !file.issuer || !file.documentNumber || !file.date
       );
       setUnselectedFiles(filesWithoutMetadata);
       setSelectedFiles([]);
     }
-  }, [isOpen, directUploads]);
+  }, [isOpen, safeUploads]);
 
   const moveToSelected = (file) => {
     setUnselectedFiles(prev => prev.filter(f => f.id !== file.id));
@@ -35,17 +81,23 @@ export const MetadataExtractionModal = ({
   };
 
   const moveAllToSelected = () => {
-    setSelectedFiles([...selectedFiles, ...unselectedFiles]);
+    setSelectedFiles(prev => [...prev, ...unselectedFiles]);
     setUnselectedFiles([]);
   };
 
   const handleExtract = () => {
-    if (selectedFiles.length > 0) {
-      onExtract(selectedFiles);
+    if (selectedFiles.length > 0 && typeof onExtract === 'function') {
+      try {
+        onExtract(selectedFiles);
+      } catch (err) {
+        console.error('onExtract threw:', err);
+      }
     }
   };
 
   if (!isOpen) return null;
+
+  const safeProgress = typeof progress === 'number' && isFinite(progress) ? progress : 0;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -75,12 +127,12 @@ export const MetadataExtractionModal = ({
                 <span className="text-sm font-semibold text-blue-800">
                   Pridobivanje metapodatkov...
                 </span>
-                <span className="text-sm text-blue-700 font-bold">{Math.round(progress)}%</span>
+                <span className="text-sm text-blue-700 font-bold">{Math.round(safeProgress)}%</span>
               </div>
               <div className="w-full bg-blue-200 rounded-full h-3 overflow-hidden">
                 <div 
                   className="bg-blue-600 h-full transition-all duration-300 rounded-full" 
-                  style={{ width: `${progress}%` }}
+                  style={{ width: `${safeProgress}%` }}
                 ></div>
               </div>
               <p className="text-xs text-blue-600 mt-2 flex items-center gap-2">
@@ -177,7 +229,8 @@ export const MetadataExtractionModal = ({
           <div className="text-sm text-gray-600">
             {selectedFiles.length > 0 && (
               <span>
-                Pripravljenih za pridobitev: <strong>{selectedFiles.length}</strong> {selectedFiles.length === 1 ? 'datoteka' : 'datotek'}
+                Pripravljenih za pridobitev: <strong>{selectedFiles.length}</strong>{' '}
+                {selectedFiles.length === 1 ? 'datoteka' : 'datotek'}
               </span>
             )}
           </div>
@@ -212,3 +265,11 @@ export const MetadataExtractionModal = ({
     </div>
   );
 };
+
+// Export wrapped in error boundary so a crash inside the modal
+// never takes down the whole page
+export const MetadataExtractionModal = (props) => (
+  <ModalErrorBoundary onClose={props.onClose}>
+    <MetadataExtractionModalInner {...props} />
+  </ModalErrorBoundary>
+);

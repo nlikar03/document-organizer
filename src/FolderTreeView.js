@@ -3,7 +3,6 @@ import { Upload, Edit2, Plus, Trash2, ChevronRight, ChevronDown, FileText, Loade
 import { getFullPath } from './documentUtils';
 import { ContextMenu } from './ContextMenu';
 
-// Helper to count files in a folder and all its children
 const countFilesInFolderTree = (folderId, allFiles) => {
   return allFiles.filter(f => {
     const fileFolderId = f.folderId || f.suggestedFolder?.id;
@@ -11,7 +10,6 @@ const countFilesInFolderTree = (folderId, allFiles) => {
   }).length;
 };
 
-// Render folder for Step 1 (with upload button and files display)
 export const FolderTreeStep1 = ({ 
   folders, 
   directUploads, 
@@ -28,7 +26,8 @@ export const FolderTreeStep1 = ({
   openUploadModal,
   openFolderFiles,
   removeDirectUpload,
-  handleDirectUploadToFolder
+  handleDirectUploadToFolder,
+  handleFolderDrop,
 }) => {
   const [dragOverFolderId, setDragOverFolderId] = React.useState(null);
   const [uploadingFolderId, setUploadingFolderId] = React.useState(null);
@@ -39,12 +38,10 @@ export const FolderTreeStep1 = ({
     setDragOverFolderId(folderId);
   };
 
-  const handleDragLeave = (e, folderId) => {
+  const handleDragLeave = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.currentTarget === e.target) {
-      setDragOverFolderId(null);
-    }
+    setDragOverFolderId(null);
   };
 
   const handleDrop = async (e, folderId) => {
@@ -52,11 +49,26 @@ export const FolderTreeStep1 = ({
     e.stopPropagation();
     setDragOverFolderId(null);
 
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
+    // Check if any item is a directory
+    const items = Array.from(e.dataTransfer.items || []);
+    const hasDirectory = items.some(item => {
+      const entry = item.webkitGetAsEntry?.();
+      return entry?.isDirectory;
+    });
+
+    if (hasDirectory || items.length > 0) {
+      // Use folder-aware drop handler
       setUploadingFolderId(folderId);
-      await handleDirectUploadToFolder(folderId, Array.from(files));
+      await handleFolderDrop(e.dataTransfer.items, folderId);
       setUploadingFolderId(null);
+    } else {
+      // Fallback: plain files only
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length > 0) {
+        setUploadingFolderId(folderId);
+        await handleDirectUploadToFolder(folderId, files);
+        setUploadingFolderId(null);
+      }
     }
   };
 
@@ -76,12 +88,8 @@ export const FolderTreeStep1 = ({
       f.id.startsWith(folder.id + '.') && f.id.split('.').length === folder.id.split('.').length + 1
     );
     
-    // Get files directly in this folder
     const folderFiles = directUploads.filter(f => f.folderId === folder.id);
-    
-    // Count files in this folder AND all subfolders
     const totalFileCount = countFilesInFolderTree(folder.id, directUploads);
-
     const isDraggingOver = dragOverFolderId === folder.id;
     const isUploading = uploadingFolderId === folder.id;
 
@@ -94,11 +102,13 @@ export const FolderTreeStep1 = ({
               : 'hover:bg-indigo-50 border-2 border-transparent'
           }`}
           onDragOver={(e) => handleDragOver(e, folder.id)}
-          onDragLeave={(e) => handleDragLeave(e, folder.id)}
+          onDragLeave={handleDragLeave}
           onDrop={(e) => handleDrop(e, folder.id)}
         >
           <button onClick={() => toggleFolder(folder.id)} className="p-1 hover:bg-indigo-100 rounded">
-            {hasChildren || folderFiles.length > 0 ? (folder.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />) : <div className="w-4" />}
+            {hasChildren || folderFiles.length > 0 
+              ? (folder.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />) 
+              : <div className="w-4" />}
           </button>
           
           <div className="flex-1 flex items-center gap-2">
@@ -125,7 +135,7 @@ export const FolderTreeStep1 = ({
                 ) : null}
                 {isDraggingOver && (
                   <span className="ml-2 text-xs text-indigo-600 font-semibold animate-pulse">
-                    Spusti datoteke tukaj
+                    Spusti tukaj
                   </span>
                 )}
               </>
@@ -134,65 +144,36 @@ export const FolderTreeStep1 = ({
 
           <ContextMenu
             items={[
-                {
-                label: 'Premakni gor',
-                icon: <ArrowUp size={14} />,
-                onClick: () => moveFolderUp(folder.id),
-                },
-                {
-                label: 'Premakni dol',
-                icon: <ArrowDown size={14} />,
-                onClick: () => moveFolderDown(folder.id),
-                },
-                {
-                label: 'Naloži datoteke',
-                icon: <Upload size={14} />,
-                onClick: () => openUploadModal(folder.id),
-                },
-                {
-                label: 'Preimenuj',
-                icon: <Edit2 size={14} />,
-                onClick: () => startEdit(folder.id, folder.name),
-                },
-                {
-                label: 'Nova podmapa',
-                icon: <Plus size={14} />,
-                onClick: () => addFolder(folder.id, folder.level + 1),
-                },
-                {
-                label: 'Izbriši',
-                icon: <Trash2 size={14} />,
-                danger: true,
-                onClick: () => deleteFolder(folder.id),
-                },
-            ].filter(Boolean)}
-            />
+              { label: 'Premakni gor', icon: <ArrowUp size={14} />, onClick: () => moveFolderUp(folder.id) },
+              { label: 'Premakni dol', icon: <ArrowDown size={14} />, onClick: () => moveFolderDown(folder.id) },
+              { label: 'Naloži datoteke', icon: <Upload size={14} />, onClick: () => openUploadModal(folder.id) },
+              { label: 'Preimenuj', icon: <Edit2 size={14} />, onClick: () => startEdit(folder.id, folder.name) },
+              { label: 'Nova podmapa', icon: <Plus size={14} />, onClick: () => addFolder(folder.id, folder.level + 1) },
+              { label: 'Izbriši', icon: <Trash2 size={14} />, danger: true, onClick: () => deleteFolder(folder.id) },
+            ]}
+          />
         </div>
         
-        {/* Files in this folder */}
         {folder.expanded && folderFiles.length > 0 && (
           <div className="ml-6 mt-1 space-y-1">
-            {folderFiles.map((file) => {
-              const fileId = file.id;
-              return (
-                <div 
-                  key={fileId}
-                  className="flex items-center gap-2 p-2 bg-white border border-gray-200 rounded hover:border-indigo-300 transition-colors group"
-                >
-                  <FileText size={16} className="text-blue-600 flex-shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{file.fileName}</p>
-                  </div>
-                  <button
-                    onClick={() => removeDirectUpload(fileId)}
-                    className="p-1 hover:bg-red-100 rounded transition-colors opacity-0 group-hover:opacity-100"
-                    title="Odstrani"
-                  >
-                    <Trash2 size={14} className="text-red-600" />
-                  </button>
+            {folderFiles.map((file) => (
+              <div 
+                key={file.id}
+                className="flex items-center gap-2 p-2 bg-white border border-gray-200 rounded hover:border-indigo-300 transition-colors group"
+              >
+                <FileText size={16} className="text-blue-600 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-gray-800 truncate">{file.fileName}</p>
                 </div>
-              );
-            })}
+                <button
+                  onClick={() => removeDirectUpload(file.id)}
+                  className="p-1 hover:bg-red-100 rounded transition-colors opacity-0 group-hover:opacity-100"
+                  title="Odstrani"
+                >
+                  <Trash2 size={14} className="text-red-600" />
+                </button>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -206,7 +187,6 @@ export const FolderTreeStep1 = ({
   );
 };
 
-// Render folder for Step 5 (review - with files)
 export const FolderTreeStep5 = ({ 
   folders, 
   finalResults, 
@@ -239,9 +219,7 @@ export const FolderTreeStep5 = ({
 
     directUploads.forEach(file => {
       const key = file.id || file.fileName;
-      if (!reviewFileMap.has(key)) {
-        reviewFileMap.set(key, file);
-      }
+      if (!reviewFileMap.has(key)) reviewFileMap.set(key, file);
     });
 
     const reviewFiles = Array.from(reviewFileMap.values());
@@ -254,10 +232,11 @@ export const FolderTreeStep5 = ({
 
     return (
       <div key={folder.id} style={{ marginLeft: `${folder.level * 24}px` }}>
-        {/* Folder row */}
         <div className="flex items-center gap-2 py-2 px-3 hover:bg-indigo-50 rounded transition-colors group">
           <button onClick={() => toggleFolder(folder.id)} className="p-1 hover:bg-indigo-100 rounded">
-            {hasChildren || folderFiles.length > 0 ? (folder.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />) : <div className="w-4" />}
+            {hasChildren || folderFiles.length > 0 
+              ? (folder.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />) 
+              : <div className="w-4" />}
           </button>
           
           <span className="text-indigo-600">📁</span>
@@ -269,12 +248,10 @@ export const FolderTreeStep5 = ({
           )}
         </div>
         
-        {/* Files in this folder */}
         {folder.expanded && folderFiles.length > 0 && (
           <div className="ml-6 mt-1 space-y-1">
             {folderFiles.map((file) => {
               const fileId = file.id || file.fileName;
-              // Check if file is AI-classified (has suggestedFolder AND is not a direct upload)
               const isAIClassified = Boolean(file.suggestedFolder) && !file.isDirectUpload;
               return (
                 <div 
@@ -316,19 +293,10 @@ export const FolderTreeStep5 = ({
                   </div>
                   <ContextMenu
                     items={[
-                        {
-                        label: 'Uredi',
-                        icon: <Edit2 size={14} />,
-                        onClick: () => startFileEdit(fileId, file),
-                        },
-                        {
-                        label: 'Odstrani',
-                        icon: <Trash2 size={14} />,
-                        danger: true,
-                        onClick: () => removeFileFromReview(fileId),
-                        },
+                      { label: 'Uredi', icon: <Edit2 size={14} />, onClick: () => startFileEdit(fileId, file) },
+                      { label: 'Odstrani', icon: <Trash2 size={14} />, danger: true, onClick: () => removeFileFromReview(fileId) },
                     ]}
-                    />
+                  />
                 </div>
               );
             })}
@@ -345,7 +313,6 @@ export const FolderTreeStep5 = ({
   );
 };
 
-// Upload modal component - now supports drag and drop
 export const UploadModal = ({ 
   isOpen, 
   folderId, 
@@ -356,31 +323,13 @@ export const UploadModal = ({
 }) => {
   const [isDragging, setIsDragging] = React.useState(false);
   
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(true);
-  };
-  
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  };
-  
+  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
   const handleDrop = (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-    
+    e.preventDefault(); e.stopPropagation(); setIsDragging(false);
     if (uploading) return;
-    
     const files = e.dataTransfer.files;
-    if (files.length > 0) {
-      // Create a fake event object
-      const fakeEvent = { target: { files } };
-      onUpload(fakeEvent);
-    }
+    if (files.length > 0) onUpload({ target: { files } });
   };
 
   if (!isOpen) return null;

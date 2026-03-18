@@ -11,7 +11,6 @@ export const useDocumentState = () => {
   
   const [files, setFiles] = useState([]);
   
-  // Files uploaded directly to folders (skip OCR/AI classification)
   const [directUploads, setDirectUploads] = useState(() => {
     const saved = localStorage.getItem('directUploads');
     return saved ? JSON.parse(saved) : [];
@@ -65,13 +64,11 @@ export const useDocumentState = () => {
   const [authError, setAuthError] = useState('');
   const [viewingOcrText, setViewingOcrText] = useState(null);
   
-  // New state for file editing on review page
   const [editingFileId, setEditingFileId] = useState(null);
   const [editingFileData, setEditingFileData] = useState(null);
 
   const [authLoading, setAuthLoading] = useState(false);
   
-  // Split finalization states
   const [isMetadataExtracted, setIsMetadataExtracted] = useState(() => {
     const saved = localStorage.getItem('isMetadataExtracted');
     return saved ? JSON.parse(saved) : false;
@@ -86,10 +83,8 @@ export const useDocumentState = () => {
   const [isGeneratingCodes, setIsGeneratingCodes] = useState(false);
   const [metadataProgress, setMetadataProgress] = useState(0);
   
-  // State for metadata extraction modal
   const [showMetadataModal, setShowMetadataModal] = useState(false);
   
-  // Track if user skipped AI classification
   const [skippedAIClassification, setSkippedAIClassification] = useState(() => {
     const saved = localStorage.getItem('skippedAIClassification');
     return saved ? JSON.parse(saved) : false;
@@ -190,17 +185,20 @@ export const useDocumentState = () => {
 
   const deleteFolder = (id) => {
     setFoldersWithSave(folders.filter(f => f.id !== id && !f.id.startsWith(id + '.')));
+    setDirectUploadsWithSave(directUploads.filter(f => f.folderId !== id && !f.folderId?.startsWith(id + '.')));
   };
-  
-  // FIXED: Improved folder movement logic
+
+  const deleteAllFolders = () => {
+    setFoldersWithSave([]);
+    setDirectUploadsWithSave([]);
+  };
+
   const moveFolderUp = (id) => {
     const index = folders.findIndex(f => f.id === id);
     if (index <= 0) return;
     
     const folder = folders[index];
     const folderLevel = folder.level;
-    
-    // Find previous sibling (same level, same parent)
     const parentId = folder.id.split('.').slice(0, -1).join('.');
     let prevSiblingIndex = -1;
     
@@ -213,31 +211,16 @@ export const useDocumentState = () => {
           break;
         }
       }
-      // If we encounter a parent level folder, stop searching
-      if (potentialSibling.level < folderLevel) {
-        break;
-      }
+      if (potentialSibling.level < folderLevel) break;
     }
     
-    if (prevSiblingIndex === -1) return; // No sibling found
+    if (prevSiblingIndex === -1) return;
     
-    // Get all descendants of current folder
-    const folderAndDescendants = folders.filter(f => 
-      f.id === id || f.id.startsWith(id + '.')
-    );
-    
-    // Get all descendants of previous sibling
+    const folderAndDescendants = folders.filter(f => f.id === id || f.id.startsWith(id + '.'));
     const prevSibling = folders[prevSiblingIndex];
-    const prevSiblingAndDescendants = folders.filter(f => 
-      f.id === prevSibling.id || f.id.startsWith(prevSibling.id + '.')
-    );
+    const prevSiblingAndDescendants = folders.filter(f => f.id === prevSibling.id || f.id.startsWith(prevSibling.id + '.'));
+    const withoutBoth = folders.filter(f => !folderAndDescendants.includes(f) && !prevSiblingAndDescendants.includes(f));
     
-    // Remove both groups from array
-    const withoutBoth = folders.filter(f => 
-      !folderAndDescendants.includes(f) && !prevSiblingAndDescendants.includes(f)
-    );
-    
-    // Insert current folder group before previous sibling group
     const newFolders = [
       ...withoutBoth.slice(0, prevSiblingIndex),
       ...folderAndDescendants,
@@ -254,14 +237,8 @@ export const useDocumentState = () => {
     
     const folder = folders[index];
     const folderLevel = folder.level;
-    
-    // Get all descendants of current folder
-    const folderAndDescendants = folders.filter(f => 
-      f.id === id || f.id.startsWith(id + '.')
-    );
+    const folderAndDescendants = folders.filter(f => f.id === id || f.id.startsWith(id + '.'));
     const lastDescendantIndex = folders.findIndex(f => f.id === folderAndDescendants[folderAndDescendants.length - 1].id);
-    
-    // Find next sibling (same level, same parent)
     const parentId = folder.id.split('.').slice(0, -1).join('.');
     let nextSiblingIndex = -1;
     
@@ -274,26 +251,15 @@ export const useDocumentState = () => {
           break;
         }
       }
-      // If we encounter a parent level folder, stop searching
-      if (potentialSibling.level < folderLevel) {
-        break;
-      }
+      if (potentialSibling.level < folderLevel) break;
     }
     
-    if (nextSiblingIndex === -1) return; // No sibling found
+    if (nextSiblingIndex === -1) return;
     
-    // Get all descendants of next sibling
     const nextSibling = folders[nextSiblingIndex];
-    const nextSiblingAndDescendants = folders.filter(f => 
-      f.id === nextSibling.id || f.id.startsWith(nextSibling.id + '.')
-    );
+    const nextSiblingAndDescendants = folders.filter(f => f.id === nextSibling.id || f.id.startsWith(nextSibling.id + '.'));
+    const withoutBoth = folders.filter(f => !folderAndDescendants.includes(f) && !nextSiblingAndDescendants.includes(f));
     
-    // Remove both groups from array
-    const withoutBoth = folders.filter(f => 
-      !folderAndDescendants.includes(f) && !nextSiblingAndDescendants.includes(f)
-    );
-    
-    // Insert next sibling group before current folder group
     const newFolders = [
       ...withoutBoth.slice(0, index),
       ...nextSiblingAndDescendants,
@@ -338,12 +304,10 @@ export const useDocumentState = () => {
     setFiles(files.filter((_, index) => index !== indexToRemove));
   };
   
-  // NEW: Remove all files
   const removeAllFiles = () => {
     setFiles([]);
   };
   
-  // Direct upload to folder (no metadata extraction here)
   const handleDirectUploadToFolder = async (folderId, uploadedFiles) => {
     const newUploads = [];
     
@@ -359,20 +323,139 @@ export const useDocumentState = () => {
         issuer: '',
         documentNumber: '',
         date: '',
-        // IMPORTANT: Mark as direct upload (not AI classified)
         isDirectUpload: true,
       });
     }
     
-    setDirectUploadsWithSave([...directUploads, ...newUploads]);
+    setDirectUploadsWithSave(prev => [...prev, ...newUploads]);
+  };
+
+  // Read a FileSystemEntry recursively, returns { folders: [...], files: [...] }
+  // parentFolderId: the app folder ID under which this entry lives
+  // parentLevel: depth level
+  const readEntryRecursive = (entry, parentFolderId, parentLevel, existingFolders) => {
+    return new Promise((resolve) => {
+      if (entry.isFile) {
+        entry.file((file) => {
+          resolve({ newFolders: [], files: [{ file, folderId: parentFolderId }] });
+        }, () => resolve({ newFolders: [], files: [] }));
+      } else if (entry.isDirectory) {
+        // Create a folder entry for this directory
+        const folderId = parentFolderId === 'root'
+          ? `drop_${Date.now()}_${Math.random().toString(36).slice(2)}`
+          : `${parentFolderId}.${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+        const folderEntry = {
+          id: folderId,
+          name: entry.name,
+          level: parentLevel,
+          expanded: true,
+        };
+
+        const reader = entry.createReader();
+        const readAllEntries = (allEntries) => {
+          reader.readEntries(async (batch) => {
+            if (batch.length === 0) {
+              // Process all child entries
+              const childPromises = allEntries.map(child =>
+                readEntryRecursive(child, folderId, parentLevel + 1, existingFolders)
+              );
+              const childResults = await Promise.all(childPromises);
+
+              const newFolders = [folderEntry];
+              const files = [];
+              for (const result of childResults) {
+                newFolders.push(...result.newFolders);
+                files.push(...result.files);
+              }
+              resolve({ newFolders, files });
+            } else {
+              readAllEntries([...allEntries, ...batch]);
+            }
+          }, () => resolve({ newFolders: [folderEntry], files: [] }));
+        };
+        readAllEntries([]);
+      } else {
+        resolve({ newFolders: [], files: [] });
+      }
+    });
+  };
+
+  // Handle dropping folders (or files) onto the folder tree
+  // dropTargetFolderId: the folder they dropped onto, or null for root
+  const handleFolderDrop = async (dataTransferItems, dropTargetFolderId = null) => {
+    const items = Array.from(dataTransferItems);
+    const entries = items
+      .map(item => item.webkitGetAsEntry ? item.webkitGetAsEntry() : null)
+      .filter(Boolean);
+
+    if (entries.length === 0) return;
+
+    const parentFolderId = dropTargetFolderId || 'root';
+    const parentLevel = dropTargetFolderId
+      ? (folders.find(f => f.id === dropTargetFolderId)?.level ?? 0) + 1
+      : 0;
+
+    const results = await Promise.all(
+      entries.map(entry => readEntryRecursive(entry, parentFolderId, parentLevel, folders))
+    );
+
+    const newFolders = [];
+    const newFiles = [];
+    for (const result of results) {
+      newFolders.push(...result.newFolders);
+      newFiles.push(...result.files);
+    }
+
+    // Insert new folders into the right position in the folder list
+    if (newFolders.length > 0) {
+      let updatedFolders;
+      if (dropTargetFolderId) {
+        const targetIndex = folders.findIndex(f => f.id === dropTargetFolderId);
+        let insertAt = targetIndex + 1;
+        while (insertAt < folders.length && folders[insertAt].id.startsWith(dropTargetFolderId + '.')) {
+          insertAt++;
+        }
+        updatedFolders = [
+          ...folders.slice(0, insertAt),
+          ...newFolders,
+          ...folders.slice(insertAt),
+        ];
+        updatedFolders = updatedFolders.map(f =>
+          f.id === dropTargetFolderId ? { ...f, expanded: true } : f
+        );
+      } else {
+        updatedFolders = [...folders, ...newFolders];
+      }
+      setFoldersWithSave(updatedFolders);
+    }
+
+    // Only upload files that belong to an actual folder (not root)
+    const filteredFiles = newFiles.filter(f => f.folderId !== 'root');
+    if (filteredFiles.length > 0) {
+      const newUploads = [];
+      for (const { file, folderId } of filteredFiles) {
+        await saveFileToIndexedDB(file.name, file);
+        newUploads.push({
+          id: `direct_${Date.now()}_${Math.random()}`,
+          fileName: file.name,
+          folderId,
+          originalFile: file,
+          documentTitle: '',
+          issuer: '',
+          documentNumber: '',
+          date: '',
+          isDirectUpload: true,
+        });
+      }
+      setDirectUploadsWithSave(prev => [...prev, ...newUploads]);
+    }
   };
   
-  // Remove direct upload file
   const removeDirectUpload = (fileId) => {
     setDirectUploadsWithSave(directUploads.filter(f => f.id !== fileId));
   };
   
-  // NEW: Remove all direct uploads
   const removeAllDirectUploads = () => {
     if (window.confirm(`Ste prepričani, da želite odstraniti vse ${directUploads.length} naložene datoteke?`)) {
       setDirectUploadsWithSave([]);
@@ -441,13 +524,10 @@ export const useDocumentState = () => {
     const newFolderCounts = { ...folderCounts };
     results.forEach(result => {
       const folderId = result.suggestedFolder.id;
-      if (!newFolderCounts[folderId]) {
-        newFolderCounts[folderId] = 0;
-      }
+      if (!newFolderCounts[folderId]) newFolderCounts[folderId] = 0;
       newFolderCounts[folderId]++;
     });
     setFolderCountsWithSave(newFolderCounts);
-
     setAiProcessing(false);
   };
   
@@ -456,7 +536,6 @@ export const useDocumentState = () => {
     setSkippedAIClassificationWithSave(true);
   };
   
-  // File editing functions for review page
   const startFileEdit = (fileId, fileData) => {
     setEditingFileId(fileId);
     setEditingFileData({ ...fileData });
@@ -464,15 +543,8 @@ export const useDocumentState = () => {
   
   const saveFileEdit = () => {
     if (!editingFileId || !editingFileData) return;
-    
-    setFinalResultsWithSave(prev => 
-      prev.map(f => f.id === editingFileId ? editingFileData : f)
-    );
-    
-    setDirectUploadsWithSave(prev =>
-      prev.map(f => f.id === editingFileId ? editingFileData : f)
-    );
-    
+    setFinalResultsWithSave(prev => prev.map(f => f.id === editingFileId ? editingFileData : f));
+    setDirectUploadsWithSave(prev => prev.map(f => f.id === editingFileId ? editingFileData : f));
     setEditingFileId(null);
     setEditingFileData(null);
   };
@@ -487,19 +559,12 @@ export const useDocumentState = () => {
     setDirectUploadsWithSave(prev => prev.filter(f => f.id !== fileId));
   };
   
-  // Open metadata extraction modal
-  const openMetadataExtractionModal = () => {
-    setShowMetadataModal(true);
-  };
+  const openMetadataExtractionModal = () => setShowMetadataModal(true);
   
-  // Close metadata extraction modal
   const closeMetadataExtractionModal = () => {
-    if (!isExtractingMetadata) {
-      setShowMetadataModal(false);
-    }
+    if (!isExtractingMetadata) setShowMetadataModal(false);
   };
   
-  // Extract metadata for selected files from modal
   const extractMetadataForSelectedFiles = async (selectedFiles) => {
     if (selectedFiles.length === 0) return;
     
@@ -513,22 +578,63 @@ export const useDocumentState = () => {
           fileName: upload.fileName
         }))
       );
-      
-      const metadata = await extractMetadataBatch(
-        filesToExtract, 
-        password, 
-        (progress) => setMetadataProgress(progress)
-      );
-      
+
+      const CHUNK_SIZE = 5;
+      const chunks = [];
+      for (let i = 0; i < filesToExtract.length; i += CHUNK_SIZE) {
+        chunks.push({
+          files: filesToExtract.slice(i, i + CHUNK_SIZE),
+          originals: selectedFiles.slice(i, i + CHUNK_SIZE),
+        });
+      }
+
+      const allMetadata = [];
+
+      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
+        const { files: chunkFiles, originals: chunkOriginals } = chunks[chunkIndex];
+
+        await new Promise(resolve => setTimeout(resolve, 0));
+        setMetadataProgress((chunkIndex / chunks.length) * 100);
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        try {
+          const formData = new FormData();
+          for (const f of chunkFiles) {
+            if (f.file) formData.append('files', f.file);
+          }
+
+          const response = await fetch(
+            'https://document-organizer-backend-0aje.onrender.com/api/extract-metadata-batch',
+            {
+              method: 'POST',
+              headers: { 'X-Password': password },
+              body: formData,
+            }
+          );
+
+          if (!response.ok) throw new Error('Batch failed');
+
+          const data = await response.json();
+          allMetadata.push(...data.results);
+        } catch (err) {
+          console.error(`Chunk ${chunkIndex + 1} failed:`, err);
+          for (const f of chunkOriginals) {
+            allMetadata.push({ fileName: f.fileName, documentTitle: '', issuer: '', documentNumber: '', date: '' });
+          }
+        }
+
+        setMetadataProgress(((chunkIndex + 1) / chunks.length) * 100);
+        await new Promise(resolve => setTimeout(resolve, 0));
+      }
+
       const metadataById = selectedFiles.reduce((acc, file, index) => {
-        acc[file.id] = metadata[index] || {};
+        acc[file.id] = allMetadata[index] || {};
         return acc;
       }, {});
 
       const applyMetadata = (file) => {
         const extracted = metadataById[file.id];
         if (!extracted) return file;
-
         return {
           ...file,
           documentTitle: extracted.documentTitle || file.documentTitle,
@@ -549,12 +655,10 @@ export const useDocumentState = () => {
     }
   };
   
-  // Generate document codes
   const generateDocumentCodes = async () => {
     setIsGeneratingCodes(true);
     
     try {
-      // Combine all files without duplicates (prefer already-reviewed finalResults entries)
       const finalIds = new Set(finalResults.map(f => f.id).filter(Boolean));
       const finalNames = new Set(finalResults.map(f => f.fileName));
       const directOnlyFiles = directUploads.filter(f => {
@@ -566,70 +670,39 @@ export const useDocumentState = () => {
         ...directOnlyFiles.map(f => ({ ...f, source: 'direct' }))
       ];
       
-      // Sort by folder ID
       allFiles.sort((a, b) => {
         const folderA = a.source === 'ai' ? a.suggestedFolder.id : a.folderId;
         const folderB = b.source === 'ai' ? b.suggestedFolder.id : b.folderId;
         return folderA.localeCompare(folderB);
       });
       
-      // Calculate file numbers per folder
       const tempFolderCounts = {};
       const finalizedFiles = allFiles.map(file => {
         const folderId = file.source === 'ai' ? file.suggestedFolder.id : file.folderId;
-        
-        if (!tempFolderCounts[folderId]) {
-          tempFolderCounts[folderId] = 0;
-        }
+        if (!tempFolderCounts[folderId]) tempFolderCounts[folderId] = 0;
         tempFolderCounts[folderId]++;
-        
         const fileNumber = tempFolderCounts[folderId];
         const docCode = generateDocCode(folderId, folders) + '.' + String(fileNumber).padStart(3, '0');
         
         if (file.source === 'ai') {
-          return {
-            ...file,
-            fileNumber,
-            docCode,
-            id: file.id || `ai_${file.fileName}_${Date.now()}`
-          };
+          return { ...file, fileNumber, docCode, id: file.id || `ai_${file.fileName}_${Date.now()}` };
         } else {
-          // IMPORTANT: Don't add suggestedFolder to direct uploads
-          // Keep them as direct uploads with only folderId
-          return {
-            ...file,
-            fileNumber,
-            docCode,
-            // Keep the original direct upload marker
-            isDirectUpload: true,
-          };
+          return { ...file, fileNumber, docCode, isDirectUpload: true };
         }
       });
       
-      // Separate back into AI and direct files
-      const aiFiles = finalizedFiles.filter(f => f.source === 'ai').map(f => {
-        const { source, ...rest } = f;
-        return rest;
-      });
-      
-      const directFiles = finalizedFiles.filter(f => f.source === 'direct').map(f => {
-        const { source, ...rest } = f;
-        return rest;
-      });
+      const aiFiles = finalizedFiles.filter(f => f.source === 'ai').map(({ source, ...rest }) => rest);
+      const directFiles = finalizedFiles.filter(f => f.source === 'direct').map(({ source, ...rest }) => rest);
       
       setFinalResultsWithSave(aiFiles);
       setDirectUploadsWithSave(prev => {
-        // Update only the direct files that were included in code generation
         const directFileIds = new Set(directFiles.map(f => f.id));
         return prev.map(file => {
-          if (directFileIds.has(file.id)) {
-            return directFiles.find(f => f.id === file.id);
-          }
+          if (directFileIds.has(file.id)) return directFiles.find(f => f.id === file.id);
           return file;
         });
       });
       setFolderCountsWithSave(tempFolderCounts);
-
     } catch (error) {
       console.error('Code generation error:', error);
       alert('Napaka pri generiranju kod dokumentov');
@@ -638,17 +711,11 @@ export const useDocumentState = () => {
     }
   };
 
-  const hasRequiredMetadata = (file) => {
-    return Boolean(
-      file.documentTitle &&
-      file.issuer &&
-      file.documentNumber &&
-      file.date
-    );
-  };
+  const hasRequiredMetadata = (file) => Boolean(
+    file.documentTitle && file.issuer && file.documentNumber && file.date
+  );
 
   const finalizeDocuments = () => {
-    // Combine both AI and direct files for finalization check
     const allReviewFiles = [...finalResults, ...directUploads];
     
     if (allReviewFiles.length === 0) {
@@ -670,7 +737,6 @@ export const useDocumentState = () => {
     setIsFinalizedWithSave(true);
   };
   
-  // NEW: Export folder structure
   const exportFolderStructure = () => {
     const data = JSON.stringify(folders, null, 2);
     const blob = new Blob([data], { type: 'application/json' });
@@ -684,35 +750,40 @@ export const useDocumentState = () => {
     URL.revokeObjectURL(url);
   };
   
-  // NEW: Import folder structure
   const importFolderStructure = (structure) => {
     if (!Array.isArray(structure)) {
       alert('Neveljavna struktura: mora biti seznam map');
       return;
     }
-    
-    // Validate structure
     const isValid = structure.every(folder => 
-      folder.id && 
-      folder.name && 
-      typeof folder.level === 'number' &&
-      typeof folder.expanded === 'boolean'
+      folder.id && folder.name && typeof folder.level === 'number' && typeof folder.expanded === 'boolean'
     );
-    
     if (!isValid) {
       alert('Neveljavna struktura: manjkajo obvezna polja');
       return;
     }
-    
     setFoldersWithSave(structure);
   };
 
-  // Downloads
+  const handleDownloadMergedPDF = async (addWatermark) => {
+    setIsDownloading(true);
+    try {
+      const { downloadMergedPDF } = await import('./clientDownloads');
+      const allFiles = [...finalResults, ...directUploads];
+      const result = await downloadMergedPDF(allFiles, folders, addWatermark);
+      return result;
+    } catch (error) {
+      console.error('Merged PDF failed:', error);
+      return { success: false, totalPages: 0, skippedDocx: [], skippedOther: [], skippedMissing: [] };
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   const handleDownloadZip = async () => {
     setIsDownloading(true);
     try {
       const { downloadZipClientSide } = await import('./clientDownloads');
-      // Combine AI and direct files for download
       const allFiles = [...finalResults, ...directUploads];
       await downloadZipClientSide(allFiles, folders);
     } catch (error) {
@@ -727,7 +798,6 @@ export const useDocumentState = () => {
     setIsDownloadingExcel(true);
     try {
       const { downloadExcelClientSide } = await import('./clientDownloads');
-      // Combine AI and direct files for Excel
       const allFiles = [...finalResults, ...directUploads];
       await downloadExcelClientSide(allFiles, folders);
     } catch (error) {
@@ -738,7 +808,6 @@ export const useDocumentState = () => {
     }
   };
 
-  // Reset functions
   const resetAll = () => {
     setFiles([]);
     setOcrResults([]);
@@ -749,7 +818,6 @@ export const useDocumentState = () => {
     setIsMetadataExtractedWithSave(false);
     setIsFinalizedWithSave(false);
     setSkippedAIClassificationWithSave(false);
-    
     localStorage.removeItem('ocrResults');
     localStorage.removeItem('currentStep');
     localStorage.removeItem('isMetadataExtracted');
@@ -773,9 +841,7 @@ export const useDocumentState = () => {
     setIsMetadataExtracted(false);
     setIsFinalized(false);
     setSkippedAIClassification(false);
-    
     localStorage.clear();
-    
     const { clearAllFiles } = await import('./indexedDBHelper');
     await clearAllFiles();
   };
@@ -826,6 +892,7 @@ export const useDocumentState = () => {
     toggleFolder,
     addFolder,
     deleteFolder,
+    deleteAllFolders,
     moveFolderUp,
     moveFolderDown,
     startEdit,
@@ -836,11 +903,13 @@ export const useDocumentState = () => {
     handlePasswordSubmit,
     startOCRProcessing,
     startAIProcessing,
+    handleDownloadMergedPDF,
     handleDownloadZip,
     handleDownloadExcel,
     resetAll,
     hardReset,
     handleDirectUploadToFolder,
+    handleFolderDrop,
     removeDirectUpload,
     removeAllDirectUploads,
     moveToReviewPage,
