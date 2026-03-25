@@ -1,6 +1,7 @@
 import JSZip from 'jszip';
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { getFileFromIndexedDB } from './indexedDBHelper';
 
 export const addWatermarkToPDF = async (pdfBytes, watermarkText) => {
@@ -103,93 +104,242 @@ export const downloadZipClientSide = async (finalResults, folders) => {
   document.body.removeChild(a);
 };
 
+
+
+// ─── BORDER HELPERS ───────────────────────────────────────────────────────────
+ 
+const thinTop       = { top:    { style: 'thin'  } };
+const hairBottom    = { bottom: { style: 'hair'  } };
+const thinBottom    = { bottom: { style: 'thin'  } };
+const thickRight    = { right:  { style: 'thick' } };
+const thickLeft     = { left:   { style: 'thick' } };
+const thickLeftRight= { left:   { style: 'thick' }, right: { style: 'thick' } };
+ 
+const mergeBorders = (...borders) => {
+  const result = {};
+  for (const b of borders) Object.assign(result, b);
+  return result;
+};
+ 
+// ─── STYLE APPLIERS ──────────────────────────────────────────────────────────
+ 
+const applyTitleRowStyle = (row) => {
+  // Col A: section number (e.g. "I.")
+  const a = row.getCell(1);
+  a.font = { bold: true, size: 10 };
+  a.alignment = { horizontal: 'left' };
+  a.border = mergeBorders(thinTop, hairBottom);
+ 
+  // Cols B–G: section title (merged)
+  for (let c = 2; c <= 7; c++) {
+    const cell = row.getCell(c);
+    cell.font = { bold: true, size: 10 };
+    cell.alignment = { horizontal: 'left', wrapText: true };
+    cell.border = mergeBorders(thinTop, hairBottom);
+  }
+};
+ 
+const applyDescRowStyle = (row) => {
+  // Col A: empty
+  row.getCell(1).border = thinBottom;
+  // Cols B–G: italic description (merged)
+  for (let c = 2; c <= 7; c++) {
+    const cell = row.getCell(c);
+    cell.font = { italic: true, size: 9 };
+    cell.alignment = { horizontal: 'left', vertical: 'top', wrapText: true };
+    cell.border = thinBottom;
+  }
+};
+ 
+const applySubTitleRowStyle = (row) => {
+  // Indented child section title — slightly smaller, still bold
+  const a = row.getCell(1);
+  a.font = { bold: true, size: 9 };
+  a.alignment = { horizontal: 'left' };
+  a.border = mergeBorders(thinTop, hairBottom);
+ 
+  for (let c = 2; c <= 7; c++) {
+    const cell = row.getCell(c);
+    cell.font = { bold: true, size: 9 };
+    cell.alignment = { horizontal: 'left', wrapText: true };
+    cell.border = mergeBorders(thinTop, hairBottom);
+  }
+};
+ 
+const applyHeaderRowStyle = (row) => {
+  // Col A: "zap.\nšt."
+  const a = row.getCell(1);
+  a.font = { size: 9 };
+  a.alignment = { vertical: 'top', wrapText: true };
+  a.border = mergeBorders(thinTop, hairBottom, thickRight);
+ 
+  // Col B: "ime dokazila…" (standalone, thick right on C now separate)
+  row.getCell(2).font = { size: 9 };
+  row.getCell(2).alignment = { vertical: 'top', wrapText: true };
+  row.getCell(2).border = mergeBorders(thinTop, hairBottom, thickRight);
+ 
+  // Col C: "originalna datoteka"
+  row.getCell(3).font = { size: 9 };
+  row.getCell(3).alignment = { vertical: 'top', wrapText: true };
+  row.getCell(3).border = mergeBorders(thinTop, hairBottom, thickRight);
+ 
+  // Col D–E: "izdajatelj" (merged D:E in original, thick right on E)
+  row.getCell(4).font = { size: 9 };
+  row.getCell(4).alignment = { vertical: 'top', wrapText: true };
+  row.getCell(4).border = mergeBorders(thinTop, hairBottom);
+  row.getCell(5).border = mergeBorders(thinTop, hairBottom, thickRight);
+ 
+  // Col F: "št. dokazila" (thick left+right)
+  row.getCell(6).font = { size: 9 };
+  row.getCell(6).alignment = { vertical: 'top', wrapText: false };
+  row.getCell(6).border = mergeBorders(thinTop, hairBottom, thickLeftRight);
+ 
+  // Col G: "datum"
+  row.getCell(7).font = { size: 9 };
+  row.getCell(7).alignment = { vertical: 'top', wrapText: false };
+  row.getCell(7).border = mergeBorders(thinTop, hairBottom);
+};
+ 
+const DATA_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFCC' } };
+ 
+const applyDataRowStyle = (row) => {
+  const a = row.getCell(1);
+  a.font = { bold: true, size: 9 };
+  a.alignment = { horizontal: 'left', vertical: 'center', wrapText: true };
+  a.fill = DATA_FILL;
+  a.border = mergeBorders(hairBottom, { top: { style: 'hair' } }, thickRight);
+ 
+  for (let c = 2; c <= 7; c++) {
+    const cell = row.getCell(c);
+    cell.font = { size: 9 };
+    cell.alignment = { horizontal: 'left', vertical: 'center', wrapText: true };
+    cell.fill = DATA_FILL;
+ 
+    let border = mergeBorders({ top: { style: 'hair' } }, hairBottom);
+    if (c === 2) border = mergeBorders(border, thickRight);
+    if (c === 3) border = mergeBorders(border, thickRight);
+    if (c === 5) border = mergeBorders(border, thickRight);
+    if (c === 6) border = mergeBorders(border, thickLeftRight);
+    cell.border = border;
+  }
+};
+
+const buildTree = (folders) => {
+  const map = {};
+  const roots = [];
+ 
+  folders.forEach(f => { map[f.id] = { ...f, children: [] }; });
+ 
+  folders.forEach(f => {
+    const parts = f.id.split('.');
+    if (parts.length === 1) {
+      roots.push(map[f.id]);
+    } else {
+      const parentId = parts.slice(0, -1).join('.');
+      if (map[parentId]) map[parentId].children.push(map[f.id]);
+      else roots.push(map[f.id]); // orphan → treat as root
+    }
+  });
+ 
+  return roots;
+};
+ 
+// Roman numerals for top-level sections
+const ROMAN = ['I','II','III','IV','V','VI','VII','VIII','IX','X',
+               'XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX'];
+ 
+// ─── MAIN EXPORT ─────────────────────────────────────────────────────────────
+ 
 export const downloadExcelClientSide = async (finalResults, folders) => {
-  const buildFolderPath = (folderId) => {
-    const parts = [];
-    const ids = folderId.split('.');
-    for (let i = 0; i < ids.length; i++) {
-      const pid = ids.slice(0, i + 1).join('.');
-      const f = folders.find(x => x.id === pid);
-      if (f) parts.push(f.name);
+  const workbook = new ExcelJS.Workbook();
+  const ws = workbook.addWorksheet('Seznam Dokumentov', {
+    pageSetup: { paperSize: 9, orientation: 'landscape' },
+  });
+ 
+  // Columns: A(seq), B(title), C(cont.), D(issuer), E(cont.), F(docNum), G(date)
+  ws.columns = [
+    { width: 6  },  // A – zap. št.
+    { width: 36 },  // B – ime dokazila
+    { width: 22 },  // C – (continuation of B)
+    { width: 22 },  // D – izdajatelj
+    { width: 16 },  // E – (continuation of D)
+    { width: 14 },  // F – št. dokazila
+    { width: 12 },  // G – datum
+  ];
+ 
+  // ── index items by folderId for quick lookup
+  const itemsByFolder = {};
+  finalResults.forEach(r => {
+    const id = getFolderId(r);
+    if (!itemsByFolder[id]) itemsByFolder[id] = [];
+    itemsByFolder[id].push(r);
+  });
+ 
+  // ── helper: add a section block (title + desc + headers + rows) to the sheet
+  const addSectionBlock = (node, romanLabel, depth) => {
+    const isTopLevel = depth === 0;
+    const titleRowNum = ws.lastRow ? ws.lastRow.number + 1 : 1;
+ 
+    // ── TITLE ROW
+    const sectionLabel = romanLabel ? `${romanLabel}.` : '';
+    const titleRow = ws.addRow([sectionLabel, node.name, '', '', '', '', '']);
+    ws.mergeCells(titleRow.number, 2, titleRow.number, 7);
+    if (isTopLevel) applyTitleRowStyle(titleRow);
+    else applySubTitleRowStyle(titleRow);
+ 
+    // ── DESCRIPTION ROW
+    const desc = node.description ||
+      'Tabelarični seznam posameznih dokazil z oštevilčenjem, kot si sledijo v prilogah.';
+    const descRow = ws.addRow(['', desc, '', '', '', '', '']);
+    ws.mergeCells(descRow.number, 2, descRow.number, 7);
+    applyDescRowStyle(descRow);
+    descRow.height = undefined; // auto
+ 
+    // ── COLUMN HEADER ROW (only when there are direct items)
+    const directItems = itemsByFolder[node.id] || [];
+    if (directItems.length > 0) {
+      const headerRow = ws.addRow([
+        'zap. \nšt.',
+        'ime dokazila oz. \nna kaj se dokazilo nanaša',
+        'originalna datoteka',
+        'izdajatelj', '',
+        'št. dokazila',
+        'datum',
+      ]);
+      ws.mergeCells(headerRow.number, 4, headerRow.number, 5);
+      applyHeaderRowStyle(headerRow);
+      headerRow.height = 66;
+ 
+      // ── DATA ROWS
+      directItems.forEach((r, i) => {
+        const docRow = ws.addRow([
+          i + 1,
+          r.documentTitle || '',
+          (r.originalFileName || r.fileName || '').replace(/\.[^/.]+$/, ''),
+          r.issuer || '',
+          '',
+          r.documentNumber || '',
+          r.date || '',
+        ]);
+        ws.mergeCells(docRow.number, 4, docRow.number, 5);
+        applyDataRowStyle(docRow);
+      });
     }
-    return parts;
+ 
+    // ── CHILD SECTIONS (recursive)
+    node.children.forEach(child => {
+      addSectionBlock(child, null, depth + 1);
+    });
   };
-
-  const sorted = [...finalResults].sort((a, b) => {
-    const idA = getFolderId(a);
-    const idB = getFolderId(b);
-    const partsA = idA.split('.').map(Number);
-    const partsB = idB.split('.').map(Number);
-    for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
-      const diff = (partsA[i] ?? -1) - (partsB[i] ?? -1);
-      if (diff !== 0) return diff;
-    }
-    return 0;
+ 
+  // ── Build tree and render
+  const tree = buildTree(folders);
+  tree.forEach((rootNode, idx) => {
+    addSectionBlock(rootNode, ROMAN[idx] ?? String(idx + 1), 0);
   });
-
-  const groups = [];
-  sorted.forEach(res => {
-    const folderId = getFolderId(res);
-    const pathArr = buildFolderPath(folderId);
-    const groupKey = pathArr.join(' > ') || 'Neznano';
-    const existing = groups.find(g => g.key === groupKey);
-    if (existing) existing.items.push(res);
-    else groups.push({ key: groupKey, pathArr, items: [res] });
-  });
-
-  const data = [];
-  const styleMap = [];
-  let rowIndex = 0;
-
-  groups.forEach(({ pathArr, items }) => {
-    pathArr.forEach((segment, depth) => {
-      data.push([`${'  '.repeat(depth)}${segment}`, '', '', '', '', '']);
-      styleMap.push({ row: rowIndex, type: depth === 0 ? 'section' : 'subsection', depth });
-      rowIndex++;
-    });
-    data.push(['zap. št.', 'ime dokazila oz. na kaj se dokazilo nanaša', 'Originalna datoteka', 'Izdajatelj', 'št. dokazila', 'datum']);
-    styleMap.push({ row: rowIndex, type: 'header' });
-    rowIndex++;
-    let itemNumber = 1;
-    items.forEach(res => {
-      data.push([itemNumber++, res.documentTitle || '', (res.originalFileName || res.fileName || '').replace(/\.[^/.]+$/, ''), res.issuer || '', res.documentNumber || '', res.date || '']);
-      rowIndex++;
-    });
-    data.push(['', '', '', '', '', '']);
-    rowIndex++;
-  });
-
-  const ws = XLSX.utils.aoa_to_sheet(data);
-
-  styleMap.forEach(info => {
-    const cellAddress = XLSX.utils.encode_cell({ r: info.row, c: 0 });
-    if (info.type === 'section') ws[cellAddress].s = { font: { bold: true, sz: 12 }, alignment: { horizontal: 'left', vertical: 'center' } };
-    if (info.type === 'subsection') ws[cellAddress].s = { font: { bold: true, sz: 10, color: { rgb: '444444' } }, alignment: { horizontal: 'left', vertical: 'center' } };
-    if (info.type === 'header') {
-      for (let col = 0; col < 6; col++) {
-        const hc = XLSX.utils.encode_cell({ r: info.row, c: col });
-        if (ws[hc]) ws[hc].s = { font: { bold: true, sz: 10 }, alignment: { horizontal: 'center', vertical: 'center' }, border: { top: { style: 'thin', color: { rgb: '000000' } }, bottom: { style: 'thin', color: { rgb: '000000' } } } };
-      }
-    }
-  });
-
-  data.forEach((row, rowIdx) => {
-    if (styleMap.some(s => s.row === rowIdx)) return;
-    for (let col = 0; col < 6; col++) {
-      const ca = XLSX.utils.encode_cell({ r: rowIdx, c: col });
-      if (ws[ca]) ws[ca].s = { border: { left: { style: 'dotted', color: { rgb: 'CCCCCC' } }, right: { style: 'dotted', color: { rgb: 'CCCCCC' } }, bottom: { style: 'dotted', color: { rgb: 'CCCCCC' } } } };
-    }
-  });
-
-  ws['!cols'] = [{ wch: 8 }, { wch: 45 }, { wch: 35 }, { wch: 30 }, { wch: 20 }, { wch: 12 }, { wch: 5 }];
-  if (!ws['!merges']) ws['!merges'] = [];
-  styleMap.forEach(info => {
-    if (info.type === 'section' || info.type === 'subsection') ws['!merges'].push({ s: { r: info.row, c: 0 }, e: { r: info.row, c: 5 } });
-  });
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Seznam Dokumentov');
-  XLSX.writeFile(wb, 'DZO_Dokumenti_Seznam.xlsx');
+ 
+  const buffer = await workbook.xlsx.writeBuffer();
+  saveAs(new Blob([buffer]), 'DZO_Dokumenti_Seznam.xlsx');
 };
 
 // ─── MERGED PDF ────────────────────────────────────────────────────────────────

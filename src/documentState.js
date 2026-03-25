@@ -572,35 +572,22 @@ export const useDocumentState = () => {
     setMetadataProgress(0);
     
     try {
-      const filesToExtract = await Promise.all(
-        selectedFiles.map(async (upload) => ({
-          file: await import('./indexedDBHelper').then(m => m.getFileFromIndexedDB(upload.fileName)),
-          fileName: upload.fileName
-        }))
-      );
-
-      const CHUNK_SIZE = 5;
-      const chunks = [];
-      for (let i = 0; i < filesToExtract.length; i += CHUNK_SIZE) {
-        chunks.push({
-          files: filesToExtract.slice(i, i + CHUNK_SIZE),
-          originals: selectedFiles.slice(i, i + CHUNK_SIZE),
-        });
-      }
-
+      const CHUNK_SIZE = 3;
+      const totalChunks = Math.ceil(selectedFiles.length / CHUNK_SIZE);
       const allMetadata = [];
 
-      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-        const { files: chunkFiles, originals: chunkOriginals } = chunks[chunkIndex];
+      for (let chunkIndex = 0; chunkIndex < totalChunks; chunkIndex++) {
+        const chunkOriginals = selectedFiles.slice(chunkIndex * CHUNK_SIZE, (chunkIndex + 1) * CHUNK_SIZE);
 
         await new Promise(resolve => setTimeout(resolve, 0));
-        setMetadataProgress((chunkIndex / chunks.length) * 100);
+        setMetadataProgress((chunkIndex / totalChunks) * 100);
         await new Promise(resolve => setTimeout(resolve, 50));
 
         try {
           const formData = new FormData();
-          for (const f of chunkFiles) {
-            if (f.file) formData.append('files', f.file);
+          for (const upload of chunkOriginals) {
+            const file = await import('./indexedDBHelper').then(m => m.getFileFromIndexedDB(upload.fileName));
+            if (file) formData.append('files', file);
           }
 
           const response = await fetch(
@@ -623,7 +610,7 @@ export const useDocumentState = () => {
           }
         }
 
-        setMetadataProgress(((chunkIndex + 1) / chunks.length) * 100);
+        setMetadataProgress(((chunkIndex + 1) / totalChunks) * 100);
         await new Promise(resolve => setTimeout(resolve, 0));
       }
 
