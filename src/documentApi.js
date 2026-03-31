@@ -1,4 +1,3 @@
-import { generateDocCode } from './documentUtils';
 
 const API_BASE = 'https://document-organizer-backend-0aje.onrender.com';
 
@@ -49,10 +48,9 @@ export const processOCR = async (files, password, onProgress, onResult) => {
   return results;
 };
 
-export const processAI = async (ocrResults, folders, password, onProgress, onLog, onResult, existingFolderCounts = {}) => {
+export const processAI = async (ocrResults, folders, password, onProgress, onLog, onResult) => {
   const results = [];
   const logs = [];
-  const folderCounts = { ...existingFolderCounts };
 
   logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: 'AI proces začet (GPT-5-mini) - paralelno procesiranje...' });
   onLog(logs);
@@ -86,12 +84,7 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
       for (let j = 0; j < batchResponse.results.length; j++) {
         const item = batchResponse.results[j];
         const originalResult = batch[j];
-        const folderId = item.classification.suggestedFolder.id;
-        
-        folderCounts[folderId] = (folderCounts[folderId] || 0) + 1;
-        const fileNumber = folderCounts[folderId];
-        
-        const docCode = generateDocCode(folderId, folders) + '.' + String(fileNumber).padStart(3, '0');
+        const docCode = String(results.length + 1).padStart(3, '0');
         
         logs.push({ 
           time: new Date().toLocaleTimeString('sl-SI'), 
@@ -103,7 +96,7 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
           id: `ai_${item.fileName}_${Date.now()}_${j}`,
           ...originalResult,
           suggestedFolder: item.classification.suggestedFolder,
-          fileNumber: fileNumber,
+          fileNumber: results.length + 1,
           docCode: docCode,
           documentTitle: item.classification.documentTitle || "",
           issuer: item.classification.issuer || "",

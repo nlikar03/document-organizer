@@ -509,25 +509,17 @@ export const useDocumentState = () => {
     setAiLogs([]);
     setCurrentStepWithSave(4);
 
-    const results = await processAI(
-      ocrResults, 
-      folders, 
-      password, 
-      setAiProgress, 
+    await processAI(
+      ocrResults,
+      folders,
+      password,
+      setAiProgress,
       setAiLogs,
       (newResults) => {
         setFinalResultsWithSave(prev => [...prev, ...newResults]);
-      },
-      folderCounts
+      }
     );
 
-    const newFolderCounts = { ...folderCounts };
-    results.forEach(result => {
-      const folderId = result.suggestedFolder.id;
-      if (!newFolderCounts[folderId]) newFolderCounts[folderId] = 0;
-      newFolderCounts[folderId]++;
-    });
-    setFolderCountsWithSave(newFolderCounts);
     setAiProcessing(false);
   };
   
@@ -663,24 +655,22 @@ export const useDocumentState = () => {
         return folderA.localeCompare(folderB);
       });
       
-      const tempFolderCounts = {};
+      let globalSeq = 0;
       const finalizedFiles = allFiles.map(file => {
-        const folderId = file.source === 'ai' ? file.suggestedFolder.id : file.folderId;
-        if (!tempFolderCounts[folderId]) tempFolderCounts[folderId] = 0;
-        tempFolderCounts[folderId]++;
-        const fileNumber = tempFolderCounts[folderId];
-        const docCode = generateDocCode(folderId, folders) + '.' + String(fileNumber).padStart(3, '0');
-        
+        globalSeq++;
+        const fileNumber = globalSeq;
+        const docCode = String(globalSeq).padStart(3, '0');
+
         if (file.source === 'ai') {
           return { ...file, fileNumber, docCode, id: file.id || `ai_${file.fileName}_${Date.now()}` };
         } else {
           return { ...file, fileNumber, docCode, isDirectUpload: true };
         }
       });
-      
+
       const aiFiles = finalizedFiles.filter(f => f.source === 'ai').map(({ source, ...rest }) => rest);
       const directFiles = finalizedFiles.filter(f => f.source === 'direct').map(({ source, ...rest }) => rest);
-      
+
       setFinalResultsWithSave(aiFiles);
       setDirectUploadsWithSave(prev => {
         const directFileIds = new Set(directFiles.map(f => f.id));
@@ -689,7 +679,7 @@ export const useDocumentState = () => {
           return file;
         });
       });
-      setFolderCountsWithSave(tempFolderCounts);
+      setFolderCountsWithSave({});
     } catch (error) {
       console.error('Code generation error:', error);
       alert('Napaka pri generiranju kod dokumentov');

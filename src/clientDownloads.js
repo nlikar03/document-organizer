@@ -129,9 +129,9 @@ const applyTitleRowStyle = (row) => {
   a.font = { bold: true, size: 10 };
   a.alignment = { horizontal: 'left' };
   a.border = mergeBorders(thinTop, hairBottom);
- 
-  // Cols B–G: section title (merged)
-  for (let c = 2; c <= 7; c++) {
+
+  // Cols B–F: section title (merged)
+  for (let c = 2; c <= 6; c++) {
     const cell = row.getCell(c);
     cell.font = { bold: true, size: 10 };
     cell.alignment = { horizontal: 'left', wrapText: true };
@@ -142,8 +142,8 @@ const applyTitleRowStyle = (row) => {
 const applyDescRowStyle = (row) => {
   // Col A: empty
   row.getCell(1).border = thinBottom;
-  // Cols B–G: italic description (merged)
-  for (let c = 2; c <= 7; c++) {
+  // Cols B–F: italic description (merged)
+  for (let c = 2; c <= 6; c++) {
     const cell = row.getCell(c);
     cell.font = { italic: true, size: 9 };
     cell.alignment = { horizontal: 'left', vertical: 'top', wrapText: true };
@@ -157,8 +157,8 @@ const applySubTitleRowStyle = (row) => {
   a.font = { bold: true, size: 9 };
   a.alignment = { horizontal: 'left' };
   a.border = mergeBorders(thinTop, hairBottom);
- 
-  for (let c = 2; c <= 7; c++) {
+
+  for (let c = 2; c <= 6; c++) {
     const cell = row.getCell(c);
     cell.font = { bold: true, size: 9 };
     cell.alignment = { horizontal: 'left', wrapText: true };
@@ -167,37 +167,32 @@ const applySubTitleRowStyle = (row) => {
 };
  
 const applyHeaderRowStyle = (row) => {
-  // Col A: "zap.\nšt."
+  // Col A: "šifra" (zap. št.)
   const a = row.getCell(1);
   a.font = { size: 9 };
   a.alignment = { vertical: 'top', wrapText: true };
   a.border = mergeBorders(thinTop, hairBottom, thickRight);
- 
-  // Col B: "ime dokazila…" (standalone, thick right on C now separate)
+
+  // Col B: "ime dokazila + originalna datoteka" (combined, thick right)
   row.getCell(2).font = { size: 9 };
   row.getCell(2).alignment = { vertical: 'top', wrapText: true };
   row.getCell(2).border = mergeBorders(thinTop, hairBottom, thickRight);
- 
-  // Col C: "originalna datoteka"
+
+  // Col C–D: "izdajatelj" (merged, thick right on D)
   row.getCell(3).font = { size: 9 };
   row.getCell(3).alignment = { vertical: 'top', wrapText: true };
-  row.getCell(3).border = mergeBorders(thinTop, hairBottom, thickRight);
- 
-  // Col D–E: "izdajatelj" (merged D:E in original, thick right on E)
-  row.getCell(4).font = { size: 9 };
-  row.getCell(4).alignment = { vertical: 'top', wrapText: true };
-  row.getCell(4).border = mergeBorders(thinTop, hairBottom);
-  row.getCell(5).border = mergeBorders(thinTop, hairBottom, thickRight);
- 
-  // Col F: "št. dokazila" (thick left+right)
+  row.getCell(3).border = mergeBorders(thinTop, hairBottom);
+  row.getCell(4).border = mergeBorders(thinTop, hairBottom, thickRight);
+
+  // Col E: "št. dokazila" (thick left+right)
+  row.getCell(5).font = { size: 9 };
+  row.getCell(5).alignment = { vertical: 'top', wrapText: false };
+  row.getCell(5).border = mergeBorders(thinTop, hairBottom, thickLeftRight);
+
+  // Col F: "datum"
   row.getCell(6).font = { size: 9 };
   row.getCell(6).alignment = { vertical: 'top', wrapText: false };
-  row.getCell(6).border = mergeBorders(thinTop, hairBottom, thickLeftRight);
- 
-  // Col G: "datum"
-  row.getCell(7).font = { size: 9 };
-  row.getCell(7).alignment = { vertical: 'top', wrapText: false };
-  row.getCell(7).border = mergeBorders(thinTop, hairBottom);
+  row.getCell(6).border = mergeBorders(thinTop, hairBottom);
 };
  
 const DATA_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFCC' } };
@@ -208,18 +203,17 @@ const applyDataRowStyle = (row) => {
   a.alignment = { horizontal: 'left', vertical: 'center', wrapText: true };
   a.fill = DATA_FILL;
   a.border = mergeBorders(hairBottom, { top: { style: 'hair' } }, thickRight);
- 
-  for (let c = 2; c <= 7; c++) {
+
+  for (let c = 2; c <= 6; c++) {
     const cell = row.getCell(c);
     cell.font = { size: 9 };
     cell.alignment = { horizontal: 'left', vertical: 'center', wrapText: true };
     cell.fill = DATA_FILL;
- 
+
     let border = mergeBorders({ top: { style: 'hair' } }, hairBottom);
-    if (c === 2) border = mergeBorders(border, thickRight);
-    if (c === 3) border = mergeBorders(border, thickRight);
-    if (c === 5) border = mergeBorders(border, thickRight);
-    if (c === 6) border = mergeBorders(border, thickLeftRight);
+    if (c === 2) border = mergeBorders(border, thickRight);  // B: title+file → thick right
+    if (c === 4) border = mergeBorders(border, thickRight);  // D: end of issuer merge → thick right
+    if (c === 5) border = mergeBorders(border, thickLeftRight); // E: št. dokazila
     cell.border = border;
   }
 };
@@ -258,13 +252,12 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
  
   // Columns: A(seq), B(title), C(cont.), D(issuer), E(cont.), F(docNum), G(date)
   ws.columns = [
-    { width: 6  },  // A – zap. št.
-    { width: 36 },  // B – ime dokazila
-    { width: 22 },  // C – (continuation of B)
-    { width: 22 },  // D – izdajatelj
-    { width: 16 },  // E – (continuation of D)
-    { width: 14 },  // F – št. dokazila
-    { width: 12 },  // G – datum
+    { width: 8  },  // A – šifra
+    { width: 55 },  // B – ime dokazila + originalna datoteka
+    { width: 22 },  // C – izdajatelj
+    { width: 16 },  // D – (continuation of C)
+    { width: 14 },  // E – št. dokazila
+    { width: 12 },  // F – datum
   ];
  
   // ── index items by folderId for quick lookup
@@ -282,16 +275,16 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
  
     // ── TITLE ROW
     const sectionLabel = romanLabel ? `${romanLabel}.` : '';
-    const titleRow = ws.addRow([sectionLabel, node.name, '', '', '', '', '']);
-    ws.mergeCells(titleRow.number, 2, titleRow.number, 7);
+    const titleRow = ws.addRow([sectionLabel, node.name, '', '', '', '']);
+    ws.mergeCells(titleRow.number, 2, titleRow.number, 6);
     if (isTopLevel) applyTitleRowStyle(titleRow);
     else applySubTitleRowStyle(titleRow);
  
     // ── DESCRIPTION ROW
     const desc = node.description ||
       'Tabelarični seznam posameznih dokazil z oštevilčenjem, kot si sledijo v prilogah.';
-    const descRow = ws.addRow(['', desc, '', '', '', '', '']);
-    ws.mergeCells(descRow.number, 2, descRow.number, 7);
+    const descRow = ws.addRow(['', desc, '', '', '', '']);
+    ws.mergeCells(descRow.number, 2, descRow.number, 6);
     applyDescRowStyle(descRow);
     descRow.height = undefined; // auto
  
@@ -299,29 +292,31 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
     const directItems = itemsByFolder[node.id] || [];
     if (directItems.length > 0) {
       const headerRow = ws.addRow([
-        'zap. \nšt.',
-        'ime dokazila oz. \nna kaj se dokazilo nanaša',
-        'originalna datoteka',
+        'šifra',
+        'ime dokazila oz. \nna kaj se dokazilo nanaša / originalna datoteka',
         'izdajatelj', '',
         'št. dokazila',
         'datum',
       ]);
-      ws.mergeCells(headerRow.number, 4, headerRow.number, 5);
+      ws.mergeCells(headerRow.number, 3, headerRow.number, 4);
       applyHeaderRowStyle(headerRow);
       headerRow.height = 66;
- 
+
       // ── DATA ROWS
-      directItems.forEach((r, i) => {
+      directItems.forEach((r) => {
+        const origFile = (r.originalFileName || r.fileName || '').replace(/\.[^/.]+$/, '');
+        const titleCell = r.documentTitle
+          ? (origFile ? `${r.documentTitle}\n${origFile}` : r.documentTitle)
+          : origFile;
         const docRow = ws.addRow([
-          i + 1,
-          r.documentTitle || '',
-          (r.originalFileName || r.fileName || '').replace(/\.[^/.]+$/, ''),
+          r.docCode || '',
+          titleCell,
           r.issuer || '',
           '',
           r.documentNumber || '',
           r.date || '',
         ]);
-        ws.mergeCells(docRow.number, 4, docRow.number, 5);
+        ws.mergeCells(docRow.number, 3, docRow.number, 4);
         applyDataRowStyle(docRow);
       });
     }
