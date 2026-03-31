@@ -649,10 +649,13 @@ export const useDocumentState = () => {
         ...directOnlyFiles.map(f => ({ ...f, source: 'direct' }))
       ];
       
+      const folderOrder = {};
+      folders.forEach((f, idx) => { folderOrder[f.id] = idx; });
+
       allFiles.sort((a, b) => {
-        const folderA = a.source === 'ai' ? a.suggestedFolder.id : a.folderId;
-        const folderB = b.source === 'ai' ? b.suggestedFolder.id : b.folderId;
-        return folderA.localeCompare(folderB);
+        const idA = a.source === 'ai' ? a.suggestedFolder.id : a.folderId;
+        const idB = b.source === 'ai' ? b.suggestedFolder.id : b.folderId;
+        return (folderOrder[idA] ?? 999999) - (folderOrder[idB] ?? 999999);
       });
       
       let globalSeq = 0;
