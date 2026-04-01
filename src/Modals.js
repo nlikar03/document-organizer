@@ -131,7 +131,7 @@ export const MergedPDFWatermarkModal = ({ isOpen, onConfirm, onCancel }) => {
 export const MergedPDFResultModal = ({ isOpen, onClose, result }) => {
   if (!isOpen || !result) return null;
  
-  const hasWarnings = result.skippedDocx?.length > 0 || result.skippedOther?.length > 0 || result.skippedMissing?.length > 0;
+  const hasWarnings = result.skippedDocx?.length > 0 || result.skippedOther?.length > 0 || result.skippedMissing?.length > 0 || result.skippedEncrypted?.length > 0;
  
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -160,6 +160,22 @@ export const MergedPDFResultModal = ({ isOpen, onClose, result }) => {
             </div>
           )}
  
+          {result.skippedEncrypted?.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              <p className="text-amber-800 font-semibold mb-2 flex items-center gap-2">
+                <AlertTriangle size={16} />
+                Zaščitene datoteke preskočene ({result.skippedEncrypted.length}) — PDF je zaščiten z geslom
+              </p>
+              <ul className="text-sm text-amber-700 space-y-1 max-h-40 overflow-y-auto">
+                {result.skippedEncrypted.map((item, i) => (
+                  <li key={i} className="truncate" title={item.folderName ? `${item.fileName} (${item.folderName})` : item.fileName}>
+                    • {item.fileName}{item.folderName ? <span className="text-amber-500 ml-1">({item.folderName})</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {result.skippedDocx?.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
               <p className="text-amber-800 font-semibold mb-2 flex items-center gap-2">

@@ -3,6 +3,28 @@ import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { getFileFromIndexedDB } from './indexedDBHelper';
+import * as pdfjsLib from 'pdfjs-dist';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker.min.mjs`;
+
+const renderPdfPagesToImages = async (pdfBytes) => {
+  const loadingTask = pdfjsLib.getDocument({ data: pdfBytes });
+  const pdfDoc = await loadingTask.promise;
+  const images = [];
+  for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+    const page = await pdfDoc.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = document.createElement('canvas');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+    images.push({ bytes: new Uint8Array(await blob.arrayBuffer()), width: viewport.width, height: viewport.height });
+    page.cleanup();
+  }
+  await pdfDoc.destroy();
+  return images;
+};
 
 export const addWatermarkToPDF = async (pdfBytes, watermarkText) => {
   try {
@@ -348,6 +370,7 @@ export const downloadMergedPDF = async (finalResults, folders, addWatermark) => 
   const skippedDocx = [];
   const skippedOther = [];
   const skippedMissing = [];
+  const skippedEncrypted = [];
 
   for (const result of sorted) {
     const file = await getFileFromIndexedDB(result.fileName);
@@ -372,10 +395,44 @@ export const downloadMergedPDF = async (finalResults, folders, addWatermark) => 
 
       if (isPdf) {
         let pdfBytes = new Uint8Array(fileBytes);
+
+        let srcDoc;
+        try {
+          srcDoc = await PDFDocument.load(pdfBytes);
+        } catch (loadErr) {
+          if (loadErr.message?.includes('encrypted')) {
+            try {
+              const A4_W = 595, A4_H = 842;
+              const pageImages = await renderPdfPagesToImages(pdfBytes);
+              for (const { bytes: imgBytes, width, height } of pageImages) {
+                const img = await mergedPdf.embedPng(imgBytes);
+                const scale = Math.min(A4_W / width, A4_H / height);
+                const drawW = width * scale;
+                const drawH = height * scale;
+                const page = mergedPdf.addPage([A4_W, A4_H]);
+                page.drawImage(img, { x: (A4_W - drawW) / 2, y: (A4_H - drawH) / 2, width: drawW, height: drawH });
+                if (addWatermark && result.docCode) {
+                  const font = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
+                  const fontSize = 20;
+                  const textWidth = font.widthOfTextAtSize(result.docCode, fontSize);
+                  page.drawText(result.docCode, { x: A4_W - textWidth - 30, y: A4_H - fontSize - 30, size: fontSize, font, color: rgb(1, 0, 0) });
+                }
+              }
+            } catch (renderErr) {
+              console.error(`Failed to render encrypted PDF ${result.fileName}:`, renderErr);
+              const folderName = folders.find(f => f.id === getFolderId(result))?.name ?? '';
+              skippedEncrypted.push({ fileName: result.fileName, folderName });
+            }
+            continue;
+          }
+          throw loadErr;
+        }
+
         if (addWatermark && result.docCode) {
           pdfBytes = await addWatermarkToPDF(pdfBytes, result.docCode);
+          srcDoc = await PDFDocument.load(pdfBytes);
         }
-        const srcDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+
         const pageIndices = srcDoc.getPageIndices();
         const copiedPages = await mergedPdf.copyPages(srcDoc, pageIndices);
         copiedPages.forEach(page => mergedPdf.addPage(page));
@@ -427,5 +484,5 @@ export const downloadMergedPDF = async (finalResults, folders, addWatermark) => 
     document.body.removeChild(a);
   }
 
-  return { success: totalPages > 0, totalPages, skippedDocx, skippedOther, skippedMissing };
+  return { success: totalPages > 0, totalPages, skippedDocx, skippedOther, skippedMissing, skippedEncrypted };
 };

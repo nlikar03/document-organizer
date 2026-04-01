@@ -754,7 +754,7 @@ export const useDocumentState = () => {
       return result;
     } catch (error) {
       console.error('Merged PDF failed:', error);
-      return { success: false, totalPages: 0, skippedDocx: [], skippedOther: [], skippedMissing: [] };
+      return { success: false, totalPages: 0, skippedDocx: [], skippedOther: [], skippedMissing: [], skippedEncrypted: [] };
     } finally {
       setIsDownloading(false);
     }
