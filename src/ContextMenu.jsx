@@ -33,7 +33,7 @@ export const ContextMenu = ({ items }) => {
               key={i}
               onClick={() => {
                 item.onClick();
-                setOpen(false);
+                if (!item.keepOpen) setOpen(false);
               }}
               className={`w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex items-center gap-2
                 ${item.danger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700'}`}

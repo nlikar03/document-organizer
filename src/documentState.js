@@ -270,6 +270,42 @@ export const useDocumentState = () => {
     setFoldersWithSave(newFolders);
   };
 
+  const sortFoldersByNumber = () => {
+    const getNumericKey = (name) => {
+      const match = name.match(/^(\d+(?:\.\d+)*)/);
+      if (match) return match[1].split('.').map(Number);
+      return [Infinity];
+    };
+
+    const compareByName = (a, b) => {
+      const aParts = getNumericKey(a.name);
+      const bParts = getNumericKey(b.name);
+      for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+        const aVal = i < aParts.length ? aParts[i] : -1;
+        const bVal = i < bParts.length ? bParts[i] : -1;
+        if (aVal !== bVal) return aVal - bVal;
+      }
+      return 0;
+    };
+
+    const sortGroup = (parentId, level) => {
+      const siblings = folders.filter(f => {
+        if (f.level !== level) return false;
+        const fParentId = f.id.split('.').slice(0, -1).join('.');
+        return fParentId === parentId;
+      });
+      siblings.sort(compareByName);
+      const result = [];
+      for (const sibling of siblings) {
+        result.push(sibling);
+        result.push(...sortGroup(sibling.id, level + 1));
+      }
+      return result;
+    };
+
+    setFoldersWithSave(sortGroup('', 0));
+  };
+
   const startEdit = (id, name) => {
     setEditingId(id);
     setEditingName(name);
@@ -634,58 +670,159 @@ export const useDocumentState = () => {
     }
   };
   
+  // ── Shared helper: build + sort the combined file list ─────────────────────
+  const buildSortedFileList = () => {
+    const finalIds = new Set(finalResults.map(f => f.id).filter(Boolean));
+    const finalNames = new Set(finalResults.map(f => f.fileName));
+    const directOnlyFiles = directUploads.filter(f => {
+      if (f.id && finalIds.has(f.id)) return false;
+      return !finalNames.has(f.fileName);
+    });
+    const allFiles = [
+      ...finalResults.map(f => ({ ...f, source: 'ai' })),
+      ...directOnlyFiles.map(f => ({ ...f, source: 'direct' }))
+    ];
+    const folderOrder = {};
+    folders.forEach((f, idx) => { folderOrder[f.id] = idx; });
+    allFiles.sort((a, b) => {
+      const idA = a.source === 'ai' ? a.suggestedFolder.id : a.folderId;
+      const idB = b.source === 'ai' ? b.suggestedFolder.id : b.folderId;
+      return (folderOrder[idA] ?? 999999) - (folderOrder[idB] ?? 999999);
+    });
+    return allFiles;
+  };
+
+  // ── Shared helper: commit finalized files back to state ──────────────────────
+  const commitFinalizedFiles = (finalizedFiles) => {
+    const aiFiles = finalizedFiles.filter(f => f.source === 'ai').map(({ source, ...rest }) => rest);
+    const directFiles = finalizedFiles.filter(f => f.source === 'direct').map(({ source, ...rest }) => rest);
+    setFinalResultsWithSave(aiFiles);
+    setDirectUploadsWithSave(prev => {
+      const directFileIds = new Set(directFiles.map(f => f.id));
+      return prev.map(file => {
+        if (directFileIds.has(file.id)) return directFiles.find(f => f.id === file.id);
+        return file;
+      });
+    });
+    setFolderCountsWithSave({});
+  };
+
+  // ── METHOD 1: simple global sequence 001, 002, 003 … ────────────────────────
   const generateDocumentCodes = async () => {
     setIsGeneratingCodes(true);
-    
     try {
-      const finalIds = new Set(finalResults.map(f => f.id).filter(Boolean));
-      const finalNames = new Set(finalResults.map(f => f.fileName));
-      const directOnlyFiles = directUploads.filter(f => {
-        if (f.id && finalIds.has(f.id)) return false;
-        return !finalNames.has(f.fileName);
-      });
-      const allFiles = [
-        ...finalResults.map(f => ({ ...f, source: 'ai' })),
-        ...directOnlyFiles.map(f => ({ ...f, source: 'direct' }))
-      ];
-      
-      const folderOrder = {};
-      folders.forEach((f, idx) => { folderOrder[f.id] = idx; });
-
-      allFiles.sort((a, b) => {
-        const idA = a.source === 'ai' ? a.suggestedFolder.id : a.folderId;
-        const idB = b.source === 'ai' ? b.suggestedFolder.id : b.folderId;
-        return (folderOrder[idA] ?? 999999) - (folderOrder[idB] ?? 999999);
-      });
-      
+      const allFiles = buildSortedFileList();
       let globalSeq = 0;
       const finalizedFiles = allFiles.map(file => {
         globalSeq++;
         const fileNumber = globalSeq;
         const docCode = String(globalSeq).padStart(3, '0');
-
         if (file.source === 'ai') {
           return { ...file, fileNumber, docCode, id: file.id || `ai_${file.fileName}_${Date.now()}` };
         } else {
           return { ...file, fileNumber, docCode, isDirectUpload: true };
         }
       });
-
-      const aiFiles = finalizedFiles.filter(f => f.source === 'ai').map(({ source, ...rest }) => rest);
-      const directFiles = finalizedFiles.filter(f => f.source === 'direct').map(({ source, ...rest }) => rest);
-
-      setFinalResultsWithSave(aiFiles);
-      setDirectUploadsWithSave(prev => {
-        const directFileIds = new Set(directFiles.map(f => f.id));
-        return prev.map(file => {
-          if (directFileIds.has(file.id)) return directFiles.find(f => f.id === file.id);
-          return file;
-        });
-      });
-      setFolderCountsWithSave({});
+      commitFinalizedFiles(finalizedFiles);
     } catch (error) {
       console.error('Code generation error:', error);
       alert('Napaka pri generiranju kod dokumentov');
+    } finally {
+      setIsGeneratingCodes(false);
+    }
+  };
+
+  // ── METHOD 2: hierarchical code  e.g.  III.2.02.003 ─────────────────────────
+  //
+  //  The code is built from the folder ancestry:
+  //    level-0 segment → Roman numeral extracted from folder name  (e.g. "III")
+  //    level-1 segment → numeric prefix of folder name, no padding  (e.g. "2")
+  //    level-2 segment → numeric prefix padded to 2 digits          (e.g. "02")
+  //    file segment    → per-folder sequence padded to 3 digits      (e.g. "003")
+  //
+  //  Folders with no numeric prefix at level 1+ use their 1-based position
+  //  among siblings so the code is always defined.
+  const generateDocumentCodesHierarchical = async () => {
+    setIsGeneratingCodes(true);
+    try {
+      const allFiles = buildSortedFileList();
+
+      // Count per-folder sequences
+      const folderSeq = {};
+
+      // Build a lookup: folderId → folder object
+      const folderById = {};
+      folders.forEach(f => { folderById[f.id] = f; });
+
+      // Build sibling index: for each folder, what position is it among
+      // siblings with the same parent? (1-based, used as fallback segment)
+      const siblingIndex = {};
+      folders.forEach(f => {
+        const parentId = f.id.includes('.') ? f.id.split('.').slice(0, -1).join('.') : null;
+        const siblings = folders.filter(s =>
+          s.id !== f.id &&
+          (parentId
+            ? s.id.startsWith(parentId + '.') && !s.id.slice(parentId.length + 1).includes('.')
+            : !s.id.includes('.'))
+        );
+        // include self to get 1-based rank
+        const allSibs = folders.filter(s =>
+          parentId
+            ? s.id.startsWith(parentId + '.') && !s.id.slice(parentId.length + 1).includes('.')
+            : !s.id.includes('.')
+        );
+        siblingIndex[f.id] = allSibs.indexOf(f) + 1;
+      });
+
+      const getFolderSegment = (folder, level) => {
+        if (level === 0) {
+          // Extract Roman numeral prefix like "III."
+          const m = folder.name.match(/^([IVXLCDM]+)\./i);
+          if (m) return m[1].toUpperCase();
+          // fallback: use sibling position as Roman numeral (unlikely needed)
+          return String(siblingIndex[folder.id] || 1);
+        }
+        // For level 1+: extract leading digits from name, always 2-digit padding
+        const m = folder.name.match(/^(\d+)/);
+        if (m) {
+          return String(parseInt(m[1], 10)).padStart(2, '0');
+        }
+        // fallback: sibling position, 2-digit padded
+        return String(siblingIndex[folder.id] || 1).padStart(2, '0');
+      };
+
+      const buildHierarchicalCode = (folderId) => {
+        const parts = folderId.split('.');
+        const segments = parts.map((_, idx) => {
+          const currentId = parts.slice(0, idx + 1).join('.');
+          const folder = folderById[currentId];
+          if (!folder) return '';
+          return getFolderSegment(folder, idx);
+        }).filter(Boolean);
+
+        // per-folder file sequence
+        folderSeq[folderId] = (folderSeq[folderId] || 0) + 1;
+        const fileSeq = String(folderSeq[folderId]).padStart(3, '0');
+
+        return [...segments, fileSeq].join('.');
+      };
+
+      let globalSeq = 0;
+      const finalizedFiles = allFiles.map(file => {
+        globalSeq++;
+        const folderId = file.source === 'ai' ? file.suggestedFolder.id : file.folderId;
+        const docCode = buildHierarchicalCode(folderId);
+        if (file.source === 'ai') {
+          return { ...file, fileNumber: globalSeq, docCode, id: file.id || `ai_${file.fileName}_${Date.now()}` };
+        } else {
+          return { ...file, fileNumber: globalSeq, docCode, isDirectUpload: true };
+        }
+      });
+
+      commitFinalizedFiles(finalizedFiles);
+    } catch (error) {
+      console.error('Code generation error (hierarchical):', error);
+      alert('Napaka pri generiranju hierarhičnih kod dokumentov');
     } finally {
       setIsGeneratingCodes(false);
     }
@@ -796,13 +933,13 @@ export const useDocumentState = () => {
     setAiProgress(0);
     setCurrentStepWithSave(1);
     setIsMetadataExtractedWithSave(false);
-    setIsFinalizedWithSave(false);
     setSkippedAIClassificationWithSave(false);
     localStorage.removeItem('ocrResults');
     localStorage.removeItem('currentStep');
     localStorage.removeItem('isMetadataExtracted');
-    localStorage.removeItem('isFinalized');
     localStorage.removeItem('skippedAIClassification');
+    // isFinalized, processedFilesCount and processedFiles are intentionally kept
+    // so the download banner stays visible while working on a new batch
   };
 
   const hardReset = async () => {
@@ -875,6 +1012,7 @@ export const useDocumentState = () => {
     deleteAllFolders,
     moveFolderUp,
     moveFolderDown,
+    sortFoldersByNumber,
     startEdit,
     saveEdit,
     handleFileUpload,
@@ -901,6 +1039,7 @@ export const useDocumentState = () => {
     closeMetadataExtractionModal,
     extractMetadataForSelectedFiles,
     generateDocumentCodes,
+    generateDocumentCodesHierarchical,
     finalizeDocuments,
     exportFolderStructure,
     importFolderStructure,

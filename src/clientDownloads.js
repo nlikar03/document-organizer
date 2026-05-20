@@ -404,14 +404,15 @@ export const downloadMergedPDF = async (finalResults, folders, addWatermark) => 
             try {
               const A4_W = 595, A4_H = 842;
               const pageImages = await renderPdfPagesToImages(pdfBytes);
-              for (const { bytes: imgBytes, width, height } of pageImages) {
+              for (let i = 0; i < pageImages.length; i++) {
+                const { bytes: imgBytes, width, height } = pageImages[i];
                 const img = await mergedPdf.embedPng(imgBytes);
                 const scale = Math.min(A4_W / width, A4_H / height);
                 const drawW = width * scale;
                 const drawH = height * scale;
                 const page = mergedPdf.addPage([A4_W, A4_H]);
                 page.drawImage(img, { x: (A4_W - drawW) / 2, y: (A4_H - drawH) / 2, width: drawW, height: drawH });
-                if (addWatermark && result.docCode) {
+                if (i === 0 && addWatermark && result.docCode) {
                   const font = await mergedPdf.embedFont(StandardFonts.HelveticaBold);
                   const fontSize = 20;
                   const textWidth = font.widthOfTextAtSize(result.docCode, fontSize);

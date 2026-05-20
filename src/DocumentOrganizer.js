@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, Loader2, Scan, Brain, Download, Eye, Save, FolderOpen, FolderPlus } from 'lucide-react';
+import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, Loader2, Scan, Brain, Download, Eye, Save, FolderOpen, FolderPlus, ArrowUpDown } from 'lucide-react';
 import { useDocumentState } from './documentState';
 import { FolderTreeStep1, FolderTreeStep5, UploadModal } from './FolderTreeView';
 import { FolderFilesModal, ProcessedFilesModal, ResetConfirmModal, DeleteAllModal, OcrTextViewModal, FileEditModal, MetadataExtractionModal } from './Modals';
@@ -50,6 +50,7 @@ export default function DocumentOrganizer() {
     deleteAllFolders,
     moveFolderUp,
     moveFolderDown,
+    sortFoldersByNumber,
     startEdit,
     saveEdit,
     handleFileUpload,
@@ -76,6 +77,7 @@ export default function DocumentOrganizer() {
     closeMetadataExtractionModal,
     extractMetadataForSelectedFiles,
     generateDocumentCodes,
+    generateDocumentCodesHierarchical,
     finalizeDocuments,
     exportFolderStructure,
     importFolderStructure,
@@ -100,6 +102,9 @@ export default function DocumentOrganizer() {
   // Root drop zone state
   const [isDraggingOverRoot, setIsDraggingOverRoot] = React.useState(false);
   const [isProcessingRootDrop, setIsProcessingRootDrop] = React.useState(false);
+
+  // Code generation method picker
+  const [showCodeMethodModal, setShowCodeMethodModal] = React.useState(false);
 
   const openUploadModal = (folderId) => {
     setUploadModalFolderId(folderId);
@@ -350,44 +355,67 @@ export default function DocumentOrganizer() {
           {/* Step 1: Folder Structure */}
           {currentStep === 1 && (
             <div>
-              <div className="flex items-center justify-between mb-4">
-                <div>
+              <div className="mb-6">
+                <div className="mb-3">
                   <h2 className="text-2xl font-bold text-gray-800">Definiraj Strukturo Map</h2>
                   {directUploads.length > 0 && (
-                    <p className="text-sm text-gray-600 mt-1">
+                    <p className="text-sm text-gray-500 mt-1">
                       {directUploads.length} dokumentov naloženih direktno v mape
                     </p>
                   )}
                 </div>
-                <div className="flex gap-2">
-                  <label className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium cursor-pointer">
-                    <FolderOpen size={18} />
-                    Uvozi strukturo
-                    <input type="file" accept=".json" onChange={handleImport} className="hidden" />
-                  </label>
-                  <button
-                    onClick={exportFolderStructure}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                  >
-                    <Save size={18} />
-                    Shrani strukturo
-                  </button>
-                  <button
-                    onClick={() => addFolder('root', 0)}
-                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors font-medium"
-                  >
-                    <Plus size={18} />
-                    Nova Mapa
-                  </button>
-                  {/* Delete all folders button */}
-                  {folders.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Import / Export group */}
+                  <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                    <label className="flex items-center gap-2 px-3 py-1.5 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors font-medium cursor-pointer whitespace-nowrap">
+                      <FolderOpen size={15} />
+                      Uvozi
+                      <input type="file" accept=".json" onChange={handleImport} className="hidden" />
+                    </label>
                     <button
-                      onClick={() => setShowDeleteAllFolders(true)}
-                      className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
+                      onClick={exportFolderStructure}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors font-medium whitespace-nowrap"
                     >
-                      <Trash2 size={18} />
-                      Izbriši vse mape
+                      <Save size={15} />
+                      Shrani
                     </button>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="h-8 w-px bg-gray-300" />
+
+                  {/* Structure actions */}
+                  <div className="flex items-center gap-1">
+                    {folders.length > 0 && (
+                      <button
+                        onClick={sortFoldersByNumber}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-sm rounded-md hover:bg-gray-50 transition-colors font-medium whitespace-nowrap"
+                      >
+                        <ArrowUpDown size={15} />
+                        Razvrsti po številki
+                      </button>
+                    )}
+                    <button
+                      onClick={() => addFolder('root', 0)}
+                      className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700 transition-colors font-medium whitespace-nowrap"
+                    >
+                      <Plus size={15} />
+                      Nova Mapa
+                    </button>
+                  </div>
+
+                  {/* Danger zone */}
+                  {folders.length > 0 && (
+                    <>
+                      <div className="h-8 w-px bg-gray-300" />
+                      <button
+                        onClick={() => setShowDeleteAllFolders(true)}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-white border border-red-300 text-red-600 text-sm rounded-md hover:bg-red-50 transition-colors font-medium whitespace-nowrap"
+                      >
+                        <Trash2 size={15} />
+                        Izbriši vse mape
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -753,7 +781,7 @@ export default function DocumentOrganizer() {
                   Izvleci metapodatke
                 </button>
                 <button
-                  onClick={generateDocumentCodes}
+                  onClick={() => setShowCodeMethodModal(true)}
                   disabled={isGeneratingCodes}
                   className="flex-1 bg-red-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 text-lg"
                 >
@@ -769,14 +797,75 @@ export default function DocumentOrganizer() {
                   className="flex-1 bg-emerald-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 text-lg"
                 >
                   <CheckCircle size={20} />
-                  Procesiraj
+                  {isFinalized ? 'Posodobi' : 'Procesiraj'}
                 </button>
               </div>
             </div>
           )}
 
+          {/* Code generation method picker modal */}
+          {showCodeMethodModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg mx-4">
+                <h3 className="text-lg font-bold text-gray-800 mb-1">Generiraj šifre dokumentov</h3>
+                <p className="text-sm text-gray-500 mb-5">Izberi metodo dodeljevanja šifer:</p>
+
+                <div className="flex flex-col gap-3">
+                  {/* Method 1 */}
+                  <button
+                    onClick={() => {
+                      setShowCodeMethodModal(false);
+                      generateDocumentCodes();
+                    }}
+                    className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-red-400 hover:bg-red-50 transition-colors text-left group"
+                  >
+                    <div className="mt-0.5 w-8 h-8 rounded-full bg-red-100 group-hover:bg-red-200 flex items-center justify-center flex-shrink-0 font-bold text-red-600 text-sm transition-colors">
+                      1
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-800">Zaporedna šifra</p>
+                      <p className="text-sm text-gray-500 mt-0.5">Zaporedje čez vse dokumente  <span className="font-mono text-gray-700">001, 002, 003</span></p>
+                    </div>
+                  </button>
+
+                  {/* Method 2 */}
+                  <button
+                    onClick={() => {
+                      setShowCodeMethodModal(false);
+                      generateDocumentCodesHierarchical();
+                    }}
+                    className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-indigo-400 hover:bg-indigo-50 transition-colors text-left group"
+                  >
+                    <div className="mt-0.5 w-8 h-8 rounded-full bg-indigo-100 group-hover:bg-indigo-200 flex items-center justify-center flex-shrink-0 font-bold text-indigo-600 text-sm transition-colors">
+                      2
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-800">Hierarhična šifra</p>
+                      <p className="text-sm text-gray-500 mt-0.5">
+                        Šifra odraža mesto v strukturi map {' '}
+                        <span className="font-mono text-gray-700">III.02.02.001</span>
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        npr. III → mapa III. INŠTALACIJE &nbsp;·&nbsp; 02 → 02 ELEKTRO &nbsp;·&nbsp; 02 → 02 SVETILKE &nbsp;·&nbsp; 001 → 1. datoteka v tej mapi
+                      </p>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="mt-5 flex justify-end">
+                  <button
+                    onClick={() => setShowCodeMethodModal(false)}
+                    className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    Prekliči
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Modals */}
-          <FolderFilesModal 
+          <FolderFilesModal
             isOpen={showFolderFiles}
             onClose={() => setShowFolderFiles(false)}
             folder={selectedFolder}

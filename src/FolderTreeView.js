@@ -144,8 +144,8 @@ export const FolderTreeStep1 = ({
 
           <ContextMenu
             items={[
-              { label: 'Premakni gor', icon: <ArrowUp size={14} />, onClick: () => moveFolderUp(folder.id) },
-              { label: 'Premakni dol', icon: <ArrowDown size={14} />, onClick: () => moveFolderDown(folder.id) },
+              { label: 'Premakni gor', icon: <ArrowUp size={14} />, keepOpen: true, onClick: () => moveFolderUp(folder.id) },
+              { label: 'Premakni dol', icon: <ArrowDown size={14} />, keepOpen: true, onClick: () => moveFolderDown(folder.id) },
               { label: 'Naloži datoteke', icon: <Upload size={14} />, onClick: () => openUploadModal(folder.id) },
               { label: 'Preimenuj', icon: <Edit2 size={14} />, onClick: () => startEdit(folder.id, folder.name) },
               { label: 'Nova podmapa', icon: <Plus size={14} />, onClick: () => addFolder(folder.id, folder.level + 1) },
