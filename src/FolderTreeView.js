@@ -1,6 +1,5 @@
 import React from 'react';
-import { Upload, Edit2, Plus, Trash2, ChevronRight, ChevronDown, FileText, Loader2, ArrowUp, ArrowDown, Eye, User, Calendar, Hash, Brain } from 'lucide-react';
-import { getFullPath } from './documentUtils';
+import { Upload, Edit2, Plus, Trash2, ChevronRight, ChevronDown, FileText, Loader2, ArrowUp, ArrowDown, User, Calendar, Hash, Brain } from 'lucide-react';
 import { ContextMenu } from './ContextMenu';
 
 const countFilesInFolderTree = (folderId, allFiles) => {
@@ -187,14 +186,23 @@ export const FolderTreeStep1 = ({
   );
 };
 
-export const FolderTreeStep5 = ({ 
-  folders, 
-  finalResults, 
-  directUploads, 
-  toggleFolder, 
-  startFileEdit, 
-  removeFileFromReview 
+export const FolderTreeStep5 = ({
+  folders,
+  finalResults,
+  directUploads,
+  toggleFolder,
+  startFileEdit,
+  removeFileFromReview
 }) => {
+  // Build the deduplicated file list once for the whole tree
+  const reviewFileMap = new Map();
+  finalResults.forEach(file => reviewFileMap.set(file.id || file.fileName, file));
+  directUploads.forEach(file => {
+    const key = file.id || file.fileName;
+    if (!reviewFileMap.has(key)) reviewFileMap.set(key, file);
+  });
+  const reviewFiles = Array.from(reviewFileMap.values());
+
   const isChildVisible = (folder) => {
     if (folder.level === 0) return true;
     const parentId = folder.id.split('.').slice(0, -1).join('.');
@@ -207,22 +215,9 @@ export const FolderTreeStep5 = ({
   const renderFolder = (folder) => {
     if (!isChildVisible(folder)) return null;
 
-    const hasChildren = folders.some(f => 
+    const hasChildren = folders.some(f =>
       f.id.startsWith(folder.id + '.') && f.id.split('.').length === folder.id.split('.').length + 1
     );
-    const reviewFileMap = new Map();
-
-    finalResults.forEach(file => {
-      const key = file.id || file.fileName;
-      reviewFileMap.set(key, file);
-    });
-
-    directUploads.forEach(file => {
-      const key = file.id || file.fileName;
-      if (!reviewFileMap.has(key)) reviewFileMap.set(key, file);
-    });
-
-    const reviewFiles = Array.from(reviewFileMap.values());
     const folderFiles = reviewFiles.filter(file => {
       const fileFolderId = file.suggestedFolder?.id || file.folderId;
       return fileFolderId === folder.id;

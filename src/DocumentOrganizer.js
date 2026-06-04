@@ -2,9 +2,8 @@ import React from 'react';
 import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, Loader2, Scan, Brain, Download, Eye, Save, FolderOpen, FolderPlus, ArrowUpDown } from 'lucide-react';
 import { useDocumentState } from './documentState';
 import { FolderTreeStep1, FolderTreeStep5, UploadModal } from './FolderTreeView';
-import { FolderFilesModal, ProcessedFilesModal, ResetConfirmModal, DeleteAllModal, OcrTextViewModal, FileEditModal, MetadataExtractionModal } from './Modals';
+import { FolderFilesModal, ProcessedFilesModal, ResetConfirmModal, DeleteAllModal, OcrTextViewModal, FileEditModal, MetadataExtractionModal, MergedPDFWatermarkModal, MergedPDFResultModal, MergedPDFLoadingModal } from './Modals';
 import { defaultStructure } from './documentUtils';
-import { MergedPDFWatermarkModal, MergedPDFResultModal, MergedPDFLoadingModal } from './Modals';
 
 
 export default function DocumentOrganizer() {
@@ -105,6 +104,9 @@ export default function DocumentOrganizer() {
 
   // Code generation method picker
   const [showCodeMethodModal, setShowCodeMethodModal] = React.useState(false);
+
+  // ZIP naming mode picker
+  const [showZipNamingModal, setShowZipNamingModal] = React.useState(false);
 
   const openUploadModal = (folderId) => {
     setUploadModalFolderId(folderId);
@@ -307,7 +309,7 @@ export default function DocumentOrganizer() {
                     <span>Združen PDF</span>
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleDownloadZip(); }}
+                    onClick={(e) => { e.stopPropagation(); setShowZipNamingModal(true); }}
                     disabled={isDownloading}
                     className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white text-blue-700 border-2 border-blue-600 px-6 py-3 rounded-xl font-bold hover:bg-blue-50 disabled:bg-slate-100 disabled:border-slate-200 disabled:text-slate-400 transition-all active:scale-95 shadow-sm"
                   >
@@ -793,12 +795,69 @@ export default function DocumentOrganizer() {
                 </button>
                 <button
                   onClick={finalizeDocuments}
-                  disabled={!finalResults.length && !directUploads.length || isGeneratingCodes}
+                  disabled={(!finalResults.length && !directUploads.length) || isGeneratingCodes}
                   className="flex-1 bg-emerald-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 text-lg"
                 >
                   <CheckCircle size={20} />
                   {isFinalized ? 'Posodobi' : 'Procesiraj'}
                 </button>
+              </div>
+            </div>
+          )}
+
+          {/* ZIP naming mode picker modal */}
+          {showZipNamingModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg mx-4">
+                <h3 className="text-lg font-bold text-gray-800 mb-1">Prenesi ZIP Arhiv</h3>
+                <p className="text-sm text-gray-500 mb-5">Izberi kako naj bodo poimenovane datoteke:</p>
+
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => { setShowZipNamingModal(false); handleDownloadZip('original'); }}
+                    className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors text-left group"
+                  >
+                    <div className="mt-0.5 w-8 h-8 rounded-full bg-blue-100 group-hover:bg-blue-200 flex items-center justify-center flex-shrink-0 font-bold text-blue-600 text-sm transition-colors">
+                      1
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-800">Originalno ime</p>
+                      <p className="text-sm text-gray-500 mt-0.5">
+                        Zaporedna številka + originalno ime datoteke{' '}
+                        <span className="font-mono text-gray-700">001_racun_podjetje.pdf</span>
+                      </p>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => { setShowZipNamingModal(false); handleDownloadZip('ai'); }}
+                    className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-purple-400 hover:bg-purple-50 transition-colors text-left group"
+                  >
+                    <div className="mt-0.5 w-8 h-8 rounded-full bg-purple-100 group-hover:bg-purple-200 flex items-center justify-center flex-shrink-0 font-bold text-purple-600 text-sm transition-colors">
+                      2
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-800">AI naslov dokumenta</p>
+                      <p className="text-sm text-gray-500 mt-0.5">
+                        Zaporedna številka + AI določen naslov{' '}
+                        <br />
+                        <span className="font-mono text-gray-700">001_Račun za gradbena dela.pdf</span>
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        Datoteke brez AI naslova dobijo originalno ime
+                      </p>
+                    </div>
+                  </button>
+                </div>
+
+                <div className="mt-5 flex justify-end">
+                  <button
+                    onClick={() => setShowZipNamingModal(false)}
+                    className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    Prekliči
+                  </button>
+                </div>
               </div>
             </div>
           )}

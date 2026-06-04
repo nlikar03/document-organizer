@@ -74,12 +74,3 @@ export const generateDocCode = (folderId, folders) => {
   
   return codes.join('.');
 };
-
-export const isChildVisible = (folder, folders) => {
-  if (folder.level === 0) return true;
-  const parentId = folder.id.split('.').slice(0, -1).join('.');
-  const parent = folders.find(f => f.id === parentId);
-  if (!parent) return true;
-  if (!parent.expanded) return false;
-  return isChildVisible(parent, folders);
-};

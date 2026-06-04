@@ -75,9 +75,11 @@ const sortByFolderTree = (results, folders) => {
   });
 };
 
-export const downloadZipClientSide = async (finalResults, folders) => {
+// namingMode: 'original' = šifra + originalno ime (default)
+//             'ai'       = šifra + AI naslov dokumenta
+export const downloadZipClientSide = async (finalResults, folders, namingMode = 'original') => {
   const zip = new JSZip();
-  
+
   const folderPaths = {};
   for (const folder of folders) {
     const parts = [];
@@ -91,20 +93,32 @@ export const downloadZipClientSide = async (finalResults, folders) => {
     folderPaths[folder.id] = path;
     zip.folder(path);
   }
-  
+
   for (const result of finalResults) {
     const file = await getFileFromIndexedDB(result.fileName);
     if (!file) continue;
-    
+
     let fileBytes = await file.arrayBuffer();
-    
+
     if (getExt(result.fileName) === 'pdf') {
       fileBytes = await addWatermarkToPDF(fileBytes, result.docCode);
     }
-    
-    const base = result.fileName.substring(0, result.fileName.lastIndexOf('.'));
+
     const ext = result.fileName.substring(result.fileName.lastIndexOf('.'));
-    const newName = `${String(result.fileNumber).padStart(3, '0')}_${base}${ext}`;
+    const prefix = String(result.fileNumber).padStart(3, '0');
+
+    let newName;
+    if (namingMode === 'ai' && result.documentTitle) {
+      // Sanitize AI title — strip characters that are invalid in file names
+      const safeTitle = result.documentTitle
+        .replace(/[\\/:*?"<>|]/g, '')
+        .trim()
+        .substring(0, 100);
+      newName = `${prefix}_${safeTitle}${ext}`;
+    } else {
+      const base = result.fileName.substring(0, result.fileName.lastIndexOf('.'));
+      newName = `${prefix}_${base}${ext}`;
+    }
 
     const folderId = getFolderId(result);
     const folderPath = folderPaths[folderId];
@@ -114,7 +128,7 @@ export const downloadZipClientSide = async (finalResults, folders) => {
     }
     zip.file(`${folderPath}/${newName}`, fileBytes);
   }
-  
+
   const blob = await zip.generateAsync({ type: 'blob' });
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
