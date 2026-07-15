@@ -537,6 +537,7 @@ export const useDocumentState = () => {
     showTranslationModal: fileProcessing.showTranslationModal,
     setShowTranslationModal: fileProcessing.setShowTranslationModal,
     translateDocuments,
+    previewTranslation: fileProcessing.previewTranslation,
     finalizeDocuments,
     handleDownloadMergedPDF,
     handleDownloadZip,

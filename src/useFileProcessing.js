@@ -367,6 +367,21 @@ export const useFileProcessing = () => {
     }
   };
 
+  // Opens a stored translation (a PDF Blob in IndexedDB) in a new browser tab.
+  const previewTranslation = async (translatedFileName) => {
+    try {
+      const blob = await getFileFromIndexedDB(translatedFileName);
+      if (!blob) { alert('Prevoda ni v shrambi.'); return; }
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener');
+      // Revoke after the tab has had time to load it.
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      console.error('Preview failed:', error);
+      alert('Predogleda ni bilo mogoče odpreti.');
+    }
+  };
+
   return {
     files,
     ocrProgress,
@@ -401,5 +416,6 @@ export const useFileProcessing = () => {
     showTranslationModal,
     setShowTranslationModal,
     translateDocuments,
+    previewTranslation,
   };
 };

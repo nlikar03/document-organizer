@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Trash2, FileText, ArrowUpDown } from 'lucide-react';
+import { Trash2, FileText, ArrowUpDown, Eye } from 'lucide-react';
 
 const formatDateTime = (iso) => {
   if (!iso) return '—';
@@ -14,7 +14,7 @@ const formatDateTime = (iso) => {
 const formatSize = (bytes) =>
   typeof bytes === 'number' ? `${(bytes / 1024).toFixed(1)} KB` : '—';
 
-const DocumentListView = ({ folders, finalResults, directUploads, removeFilesFromReview, showAITitles }) => {
+const DocumentListView = ({ folders, finalResults, directUploads, removeFilesFromReview, showAITitles, onPreviewTranslation }) => {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [anchorIndex, setAnchorIndex] = useState(null);
   const [sortBy, setSortBy] = useState('processedAt');
@@ -218,7 +218,24 @@ const DocumentListView = ({ folders, finalResults, directUploads, removeFilesFro
                     <div className="truncate" title={showAITitles ? row.documentTitle : row.fileName}>
                       {(showAITitles ? row.documentTitle : row.fileName) || row.fileName}
                     </div>
-                    <div className="text-xs text-gray-400">{formatSize(row.fileSize)}</div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-xs text-gray-400">{formatSize(row.fileSize)}</span>
+                      {row.language && row.language !== 'sl' && (
+                        <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-semibold uppercase">
+                          {row.language}
+                        </span>
+                      )}
+                      {row.translatedFileName && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onPreviewTranslation?.(row.translatedFileName); }}
+                          className="flex items-center gap-1 px-1.5 py-0.5 bg-green-100 text-green-700 hover:bg-green-200 rounded text-[10px] font-semibold transition-colors"
+                          title="Predogled prevoda"
+                        >
+                          prevod {row.docCode ? `${row.docCode}-P` : ''}
+                          <Eye size={11} />
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-2 text-gray-600 max-w-[180px]">
                     <div className="truncate" title={row.folderLabel}>{row.folderLabel}</div>

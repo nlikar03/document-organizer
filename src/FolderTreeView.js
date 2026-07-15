@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, Edit2, Plus, Trash2, ChevronRight, ChevronDown, FileText, Loader2, ArrowUp, ArrowDown, User, Calendar, Hash, Brain } from 'lucide-react';
+import { Upload, Edit2, Plus, Trash2, ChevronRight, ChevronDown, FileText, Loader2, ArrowUp, ArrowDown, User, Calendar, Hash, Brain, Languages, Eye } from 'lucide-react';
 import { ContextMenu } from './ContextMenu';
 
 const countFilesInFolderTree = (folderId, allFiles) => {
@@ -194,6 +194,7 @@ export const FolderTreeStep5 = ({
   startFileEdit,
   removeFileFromReview,
   showAITitles,
+  onPreviewTranslation,
 }) => {
   // Build the deduplicated file list once for the whole tree
   const reviewFileMap = new Map();
@@ -250,8 +251,8 @@ export const FolderTreeStep5 = ({
               const fileId = file.id || file.fileName;
               const isAIClassified = Boolean(file.suggestedFolder) && !file.isDirectUpload;
               return (
-                <div 
-                  key={fileId}
+                <div key={fileId} className="space-y-0">
+                <div
                   className="flex items-center gap-2 p-2 bg-white border border-gray-200 rounded hover:border-indigo-300 transition-colors group"
                 >
                   <FileText size={16} className="text-blue-600 flex-shrink-0" />
@@ -264,6 +265,11 @@ export const FolderTreeStep5 = ({
                         <span className="flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-semibold flex-shrink-0">
                           <Brain size={12} />
                           AI Klasificiran
+                        </span>
+                      )}
+                      {file.language && file.language !== 'sl' && !file.translatedFileName && (
+                        <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded text-xs font-semibold uppercase flex-shrink-0">
+                          {file.language}
                         </span>
                       )}
                     </div>
@@ -295,6 +301,32 @@ export const FolderTreeStep5 = ({
                       { label: 'Odstrani', icon: <Trash2 size={14} />, danger: true, onClick: () => removeFileFromReview(fileId) },
                     ]}
                   />
+                </div>
+
+                {file.translatedFileName && (
+                  <button
+                    onClick={() => onPreviewTranslation?.(file.translatedFileName)}
+                    className="ml-8 flex items-center gap-2 w-[calc(100%-2rem)] p-2 bg-green-50 border border-green-200 border-t-0 rounded-b hover:bg-green-100 hover:border-green-300 transition-colors text-left group"
+                    title="Predogled prevoda"
+                  >
+                    <Languages size={15} className="text-green-600 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-green-800 truncate">
+                        Slovenski prevod
+                      </p>
+                      
+                    </div>
+                    {file.docCode && (
+                      <span className="font-mono font-bold text-green-700 text-sm flex-shrink-0">
+                        {file.docCode}-P
+                      </span>
+                    )}
+                    <span className="flex items-center gap-1 px-2 py-1 bg-green-600 text-white rounded text-xs font-semibold flex-shrink-0 group-hover:bg-green-700 transition-colors">
+                      <Eye size={13} />
+                      Predogled
+                    </span>
+                  </button>
+                )}
                 </div>
               );
             })}

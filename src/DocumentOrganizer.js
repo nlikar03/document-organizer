@@ -88,6 +88,7 @@ export default function DocumentOrganizer() {
     showTranslationModal,
     setShowTranslationModal,
     translateDocuments,
+    previewTranslation,
     exportFolderStructure,
     importFolderStructure,
   } = useDocumentState();
@@ -845,6 +846,7 @@ export default function DocumentOrganizer() {
                     startFileEdit={startFileEdit}
                     removeFileFromReview={removeFileFromReview}
                     showAITitles={showAITitles}
+                    onPreviewTranslation={previewTranslation}
                   />
                 ) : (
                   <DocumentListView
@@ -853,6 +855,7 @@ export default function DocumentOrganizer() {
                     directUploads={directUploads}
                     removeFilesFromReview={removeFilesFromReview}
                     showAITitles={showAITitles}
+                    onPreviewTranslation={previewTranslation}
                   />
                 )}
               </div>
@@ -1105,6 +1108,7 @@ export default function DocumentOrganizer() {
                     directUploads={directUploads}
                     removeFilesFromReview={removeFilesFromReview}
                     showAITitles={showAITitles}
+                    onPreviewTranslation={previewTranslation}
                   />
                 </div>
               </div>
