@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { verifyPassword, processOCR, processAI } from './documentApi';
-import { saveFileToIndexedDB } from './indexedDBHelper';
+import { verifyPassword, processOCR, processAI, translatePdf } from './documentApi';
+import { saveFileToIndexedDB, getFileFromIndexedDB } from './indexedDBHelper';
 
 export const useFileProcessing = () => {
   const [files, setFiles] = useState([]);
@@ -13,13 +13,19 @@ export const useFileProcessing = () => {
   const [aiProgress, setAiProgress] = useState(0);
   const [aiProcessing, setAiProcessing] = useState(false);
   const [aiLogs, setAiLogs] = useState([]);
-  const [password, setPassword] = useState('');
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  // The backend has no session/token — every request re-sends the password in an
+  // X-Password header — so staying logged in means keeping the password around.
+  // sessionStorage: survives reloads, dies with the tab.
+  const [password, setPassword] = useState(() => sessionStorage.getItem('authPassword') || '');
+  const [isAuthenticated, setIsAuthenticated] = useState(() => !!sessionStorage.getItem('authPassword'));
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
   const [isExtractingMetadata, setIsExtractingMetadata] = useState(false);
   const [metadataProgress, setMetadataProgress] = useState(0);
   const [showMetadataModal, setShowMetadataModal] = useState(false);
+  const [isTranslating, setIsTranslating] = useState(false);
+  const [translationProgress, setTranslationProgress] = useState(0);
+  const [showTranslationModal, setShowTranslationModal] = useState(false);
 
   const setOcrResultsWithSave = (results) => {
     const updated = typeof results === 'function' ? results(ocrResults) : results;
@@ -37,6 +43,7 @@ export const useFileProcessing = () => {
     try {
       const isValid = await verifyPassword(password);
       if (isValid) {
+        sessionStorage.setItem('authPassword', password);
         setIsAuthenticated(true);
       } else {
         setAuthError('Napačno geslo');
@@ -49,17 +56,36 @@ export const useFileProcessing = () => {
     }
   };
 
+  const handleLogout = () => {
+    sessionStorage.removeItem('authPassword');
+    setPassword('');
+    setIsAuthenticated(false);
+    setAuthError('');
+    setAuthLoading(false);
+  };
+
   // ── File input ─────────────────────────────────────────────────────────────
 
-  const handleFileUpload = (e) => {
+  // alreadyProcessed = names of files finalized in an earlier batch, so re-adding them
+  // here would OCR and classify the same document twice.
+  const handleFileUpload = (e, alreadyProcessed = []) => {
     const newFiles = Array.from(e.target.files);
-    const allFiles = [...files, ...newFiles];
-    if (allFiles.length > 200) { alert('Maksimalno število datotek je 200 na enkrat.'); return; }
-    if (allFiles.reduce((s, f) => s + f.size, 0) > 150 * 1024 * 1024) {
-      alert('Skupna velikost datotek presega 150MB.');
-      return;
+    const queued = new Set(files.map(f => f.name));
+    const processed = new Set(alreadyProcessed);
+
+    const duplicates = [];
+    const accepted = [];
+    newFiles.forEach(file => {
+      if (queued.has(file.name) || processed.has(file.name)) duplicates.push(file.name);
+      else accepted.push(file);
+    });
+
+    if (duplicates.length > 0) {
+      alert(
+        `Te datoteke so že procesirane ali že v seznamu in bodo preskočene:\n\n${duplicates.join('\n')}`
+      );
     }
-    setFiles(allFiles);
+    if (accepted.length > 0) setFiles([...files, ...accepted]);
   };
 
   const removeFile = (idx) => setFiles(files.filter((_, i) => i !== idx));
@@ -81,6 +107,8 @@ export const useFileProcessing = () => {
         documentNumber: '',
         date: '',
         isDirectUpload: true,
+        processedAt: new Date().toISOString(),
+        fileSize: file.size,
       });
     }
     setDirectUploadsWithSave(prev => [...prev, ...newUploads]);
@@ -196,6 +224,9 @@ export const useFileProcessing = () => {
     for (const result of results) {
       await saveFileToIndexedDB(result.fileName, result.originalFile);
     }
+    // The uploader queue is consumed by OCR — clear it so returning to step 2 doesn't
+    // show already-processed files and offer to run them again.
+    setFiles([]);
     setOcrProcessing(false);
   };
 
@@ -287,6 +318,55 @@ export const useFileProcessing = () => {
     }
   };
 
+  // ── Translation ────────────────────────────────────────────────────────────
+
+  // The translation is stored as a property of the original document, not as a
+  // separate entry — a separate entry would consume its own docCode and break the
+  // 001, 002, 003 sequence.
+  const translateDocuments = async (documents, setDirectUploadsWithSave, setFinalResultsWithSave) => {
+    if (documents.length === 0) return;
+    setIsTranslating(true);
+    setTranslationProgress(0);
+
+    const translated = {};
+    const failed = [];
+
+    for (let i = 0; i < documents.length; i++) {
+      const doc = documents[i];
+      try {
+        const original = await getFileFromIndexedDB(doc.fileName);
+        if (!original) throw new Error('Datoteke ni v shrambi');
+
+        const blob = await translatePdf(original, doc.language, password);
+
+        const dot = doc.fileName.lastIndexOf('.');
+        const translatedName = dot === -1
+          ? `${doc.fileName}_PREVOD`
+          : `${doc.fileName.slice(0, dot)}_PREVOD${doc.fileName.slice(dot)}`;
+
+        await saveFileToIndexedDB(translatedName, blob);
+        translated[doc.id] = translatedName;
+      } catch (error) {
+        console.error(`Translation failed for ${doc.fileName}:`, error);
+        failed.push(doc.fileName);
+      }
+      setTranslationProgress(((i + 1) / documents.length) * 100);
+    }
+
+    const applyTranslation = (file) =>
+      translated[file.id] ? { ...file, translatedFileName: translated[file.id] } : file;
+
+    setFinalResultsWithSave(prev => prev.map(applyTranslation));
+    setDirectUploadsWithSave(prev => prev.map(applyTranslation));
+
+    setIsTranslating(false);
+    setShowTranslationModal(false);
+
+    if (failed.length > 0) {
+      alert(`Prevod ni uspel za:\n\n${failed.join('\n')}`);
+    }
+  };
+
   return {
     files,
     ocrProgress,
@@ -299,6 +379,7 @@ export const useFileProcessing = () => {
     isAuthenticated,
     authError,
     authLoading,
+    handleLogout,
     isExtractingMetadata,
     metadataProgress,
     showMetadataModal,
@@ -315,5 +396,10 @@ export const useFileProcessing = () => {
     openMetadataExtractionModal,
     closeMetadataExtractionModal,
     extractMetadataForSelectedFiles,
+    isTranslating,
+    translationProgress,
+    showTranslationModal,
+    setShowTranslationModal,
+    translateDocuments,
   };
 };

@@ -1,4 +1,5 @@
-import JSZip from 'jszip';
+import { ZipDeflate, Zip } from 'fflate';
+import * as streamSaver from 'streamsaver';
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
@@ -78,7 +79,8 @@ const sortByFolderTree = (results, folders) => {
 // namingMode: 'original' = šifra + originalno ime (default)
 //             'ai'       = šifra + AI naslov dokumenta
 export const downloadZipClientSide = async (finalResults, folders, namingMode = 'original') => {
-  const zip = new JSZip();
+  const base = process.env.PUBLIC_URL || '';
+  streamSaver.mitm = `${window.location.origin}${base}/mitm.html`;
 
   const folderPaths = {};
   for (const folder of folders) {
@@ -89,55 +91,64 @@ export const downloadZipClientSide = async (finalResults, folders, namingMode = 
       const f = folders.find(x => x.id === fid);
       if (f) parts.push(f.name);
     }
-    const path = parts.join('/');
-    folderPaths[folder.id] = path;
-    zip.folder(path);
+    folderPaths[folder.id] = parts.join('/');
   }
 
-  for (const result of finalResults) {
-    const file = await getFileFromIndexedDB(result.fileName);
-    if (!file) continue;
+  const fileStream = streamSaver.createWriteStream('DZO_Dokumenti.zip');
+  const writer = fileStream.getWriter();
 
-    let fileBytes = await file.arrayBuffer();
+  await new Promise((resolve, reject) => {
+    const zip = new Zip((err, chunk, final) => {
+      if (err) { writer.abort(err); reject(err); return; }
+      writer.write(chunk);
+      if (final) { writer.close(); resolve(); }
+    });
 
-    if (getExt(result.fileName) === 'pdf') {
-      fileBytes = await addWatermarkToPDF(fileBytes, result.docCode);
-    }
+    (async () => {
+      for (const result of finalResults) {
+        const file = await getFileFromIndexedDB(result.fileName);
+        if (!file) continue;
 
-    const ext = result.fileName.substring(result.fileName.lastIndexOf('.'));
-    const prefix = String(result.fileNumber).padStart(3, '0');
+        let fileBytes = new Uint8Array(await file.arrayBuffer());
 
-    let newName;
-    if (namingMode === 'ai' && result.documentTitle) {
-      // Sanitize AI title — strip characters that are invalid in file names
-      const safeTitle = result.documentTitle
-        .replace(/[\\/:*?"<>|]/g, '')
-        .trim()
-        .substring(0, 100);
-      newName = `${prefix}_${safeTitle}${ext}`;
-    } else {
-      const base = result.fileName.substring(0, result.fileName.lastIndexOf('.'));
-      newName = `${prefix}_${base}${ext}`;
-    }
+        if (getExt(result.fileName) === 'pdf') {
+          fileBytes = new Uint8Array(await addWatermarkToPDF(fileBytes, result.docCode));
+        }
 
-    const folderId = getFolderId(result);
-    const folderPath = folderPaths[folderId];
-    if (!folderPath) {
-      console.warn(`No folder path for "${folderId}" on "${result.fileName}" — skipping.`);
-      continue;
-    }
-    zip.file(`${folderPath}/${newName}`, fileBytes);
-  }
+        const ext = result.fileName.substring(result.fileName.lastIndexOf('.'));
+        const prefix = String(result.fileNumber).padStart(3, '0');
 
-  const blob = await zip.generateAsync({ type: 'blob' });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'DZO_Dokumenti.zip';
-  document.body.appendChild(a);
-  a.click();
-  window.URL.revokeObjectURL(url);
-  document.body.removeChild(a);
+        let newName;
+        if (namingMode === 'ai' && result.documentTitle) {
+          const safeTitle = result.documentTitle
+            .replace(/[\\/:*?"<>|]/g, '')
+            .trim()
+            .substring(0, 100);
+          newName = `${prefix}_${safeTitle}${ext}`;
+        } else {
+          const base = result.fileName.substring(0, result.fileName.lastIndexOf('.'));
+          newName = `${prefix}_${base}${ext}`;
+        }
+
+        const folderId = getFolderId(result);
+        const folderPath = folderPaths[folderId];
+        if (!folderPath) {
+          console.warn(`No folder path for "${folderId}" on "${result.fileName}" — skipping.`);
+          continue;
+        }
+
+        await new Promise((res, rej) => {
+          const entry = new ZipDeflate(`${folderPath}/${newName}`, { level: 6 });
+          zip.add(entry);
+          try {
+            entry.push(fileBytes, true);
+            res();
+          } catch (e) { rej(e); }
+        });
+      }
+      zip.end();
+    })().catch(reject);
+  });
 };
 
 
@@ -280,21 +291,37 @@ const ROMAN = ['I','II','III','IV','V','VI','VII','VIII','IX','X',
  
 // ─── MAIN EXPORT ─────────────────────────────────────────────────────────────
  
-export const downloadExcelClientSide = async (finalResults, folders) => {
+// titleMode: 'combined' = AI + original skupaj (default)
+//            'split'    = AI v enem stolpcu, original v drugem
+//            'original' = samo originalno ime
+//            'ai'       = samo AI naslov
+export const downloadExcelClientSide = async (finalResults, folders, titleMode = 'combined', stripPrefix = false) => {
+  const strip = (name) => stripPrefix ? name.replace(/^\d{2,4}_/, '') : name;
   const workbook = new ExcelJS.Workbook();
   const ws = workbook.addWorksheet('Seznam Dokumentov', {
     pageSetup: { paperSize: 9, orientation: 'landscape' },
   });
  
-  // Columns: A(seq), B(title), C(cont.), D(issuer), E(cont.), F(docNum), G(date)
-  ws.columns = [
-    { width: 8  },  // A – šifra
-    { width: 55 },  // B – ime dokazila + originalna datoteka
-    { width: 22 },  // C – izdajatelj
-    { width: 16 },  // D – (continuation of C)
-    { width: 14 },  // E – št. dokazila
-    { width: 12 },  // F – datum
-  ];
+  const isSplit = titleMode === 'split';
+  if (isSplit) {
+    ws.columns = [
+      { width: 8  },  // A – šifra
+      { width: 35 },  // B – AI naslov
+      { width: 30 },  // C – originalna datoteka
+      { width: 22 },  // D – izdajatelj
+      { width: 14 },  // E – št. dokazila
+      { width: 12 },  // F – datum
+    ];
+  } else {
+    ws.columns = [
+      { width: 8  },  // A – šifra
+      { width: 55 },  // B – ime dokazila
+      { width: 22 },  // C – izdajatelj
+      { width: 16 },  // D – (continuation of C)
+      { width: 14 },  // E – št. dokazila
+      { width: 12 },  // F – datum
+    ];
+  }
  
   // ── index items by folderId for quick lookup
   const itemsByFolder = {};
@@ -327,32 +354,35 @@ export const downloadExcelClientSide = async (finalResults, folders) => {
     // ── COLUMN HEADER ROW (only when there are direct items)
     const directItems = itemsByFolder[node.id] || [];
     if (directItems.length > 0) {
-      const headerRow = ws.addRow([
-        'šifra',
-        'ime dokazila oz. \nna kaj se dokazilo nanaša / originalna datoteka',
-        'izdajatelj', '',
-        'št. dokazila',
-        'datum',
-      ]);
-      ws.mergeCells(headerRow.number, 3, headerRow.number, 4);
+      let headerRow;
+      if (isSplit) {
+        headerRow = ws.addRow(['šifra', 'AI naslov dokumenta', 'originalna datoteka', 'izdajatelj', 'št. dokazila', 'datum']);
+      } else {
+        headerRow = ws.addRow(['šifra', 'ime dokazila oz. \nna kaj se dokazilo nanaša / originalna datoteka', 'izdajatelj', '', 'št. dokazila', 'datum']);
+        ws.mergeCells(headerRow.number, 3, headerRow.number, 4);
+      }
       applyHeaderRowStyle(headerRow);
       headerRow.height = 66;
 
       // ── DATA ROWS
       directItems.forEach((r) => {
-        const origFile = (r.originalFileName || r.fileName || '').replace(/\.[^/.]+$/, '');
-        const titleCell = r.documentTitle
-          ? (origFile ? `${r.documentTitle}\n${origFile}` : r.documentTitle)
-          : origFile;
-        const docRow = ws.addRow([
-          r.docCode || '',
-          titleCell,
-          r.issuer || '',
-          '',
-          r.documentNumber || '',
-          r.date || '',
-        ]);
-        ws.mergeCells(docRow.number, 3, docRow.number, 4);
+        const origFile = strip((r.originalFileName || r.fileName || '').replace(/\.[^/.]+$/, ''));
+        let docRow;
+        if (isSplit) {
+          docRow = ws.addRow([r.docCode || '', r.documentTitle || '', origFile, r.issuer || '', r.documentNumber || '', r.date || '']);
+        } else {
+          let titleCell;
+          if (titleMode === 'original') {
+            titleCell = origFile;
+          } else if (titleMode === 'ai') {
+            titleCell = r.documentTitle || origFile;
+          } else {
+            // combined
+            titleCell = r.documentTitle ? (origFile ? `${r.documentTitle}\n${origFile}` : r.documentTitle) : origFile;
+          }
+          docRow = ws.addRow([r.docCode || '', titleCell, r.issuer || '', '', r.documentNumber || '', r.date || '']);
+          ws.mergeCells(docRow.number, 3, docRow.number, 4);
+        }
         applyDataRowStyle(docRow);
       });
     }
@@ -476,6 +506,26 @@ export const downloadMergedPDF = async (finalResults, folders, addWatermark) => 
             y: A4_H - fontSize - 30,
             size: fontSize, font, color: rgb(1, 0, 0),
           });
+        }
+      }
+
+      // A translated copy goes straight after its original, watermarked with the
+      // derived "-P" code. It is a property of the document, not its own entry.
+      if (result.translatedFileName) {
+        const translatedFile = await getFileFromIndexedDB(result.translatedFileName);
+        if (translatedFile) {
+          try {
+            let tBytes = new Uint8Array(await translatedFile.arrayBuffer());
+            const tCode = result.docCode ? `${result.docCode}-P` : '';
+            if (addWatermark && tCode) {
+              tBytes = await addWatermarkToPDF(tBytes, tCode);
+            }
+            const tDoc = await PDFDocument.load(tBytes);
+            const tPages = await mergedPdf.copyPages(tDoc, tDoc.getPageIndices());
+            tPages.forEach(page => mergedPdf.addPage(page));
+          } catch (tErr) {
+            console.error(`Failed to merge translation of ${result.fileName}:`, tErr);
+          }
         }
       }
     } catch (err) {

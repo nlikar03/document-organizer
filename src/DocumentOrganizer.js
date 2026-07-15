@@ -1,8 +1,10 @@
 import React from 'react';
-import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, Loader2, Scan, Brain, Download, Eye, Save, FolderOpen, FolderPlus, ArrowUpDown } from 'lucide-react';
+import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, Loader2, Scan, Brain, Download, Eye, Save, FolderOpen, FolderPlus, ArrowUpDown, List, Languages } from 'lucide-react';
 import { useDocumentState } from './documentState';
 import { FolderTreeStep1, FolderTreeStep5, UploadModal } from './FolderTreeView';
-import { FolderFilesModal, ProcessedFilesModal, ResetConfirmModal, DeleteAllModal, OcrTextViewModal, FileEditModal, MetadataExtractionModal, MergedPDFWatermarkModal, MergedPDFResultModal, MergedPDFLoadingModal } from './Modals';
+import DocumentListView from './DocumentListView';
+import { TranslationModal } from './TranslationModal';
+import { FolderFilesModal, ResetConfirmModal, DeleteAllModal, OcrTextViewModal, FileEditModal, MetadataExtractionModal, MergedPDFWatermarkModal, MergedPDFResultModal, MergedPDFLoadingModal } from './Modals';
 import { defaultStructure } from './documentUtils';
 
 
@@ -33,7 +35,6 @@ export default function DocumentOrganizer() {
     isGeneratingCodes,
     metadataProgress,
     processedFilesCount,
-    processedFiles,
     editingId,
     editingName,
     showMetadataModal,
@@ -72,17 +73,41 @@ export default function DocumentOrganizer() {
     saveFileEdit,
     cancelFileEdit,
     removeFileFromReview,
+    removeFilesFromReview,
     openMetadataExtractionModal,
     closeMetadataExtractionModal,
     extractMetadataForSelectedFiles,
     generateDocumentCodes,
     generateDocumentCodesHierarchical,
-    finalizeDocuments,
+    codeMethod,
+    regenerateCodes,
+    hasUncodedFiles,
+    foreignLanguageDocs,
+    isTranslating,
+    translationProgress,
+    showTranslationModal,
+    setShowTranslationModal,
+    translateDocuments,
     exportFolderStructure,
     importFolderStructure,
   } = useDocumentState();
 
   const [showProcessedFiles, setShowProcessedFiles] = React.useState(false);
+  const [reviewViewMode, setReviewViewMode] = React.useState('tree'); // 'tree' | 'list'
+
+  const hasReviewFiles = finalResults.length > 0 || directUploads.length > 0;
+
+  // Entering step 5: ask for the numbering method the first time. On later visits the
+  // method is remembered, so files added since just get numbered with it.
+  React.useEffect(() => {
+    if (currentStep !== 5 || !hasReviewFiles || isGeneratingCodes) return;
+    if (!codeMethod) {
+      setShowCodeMethodModal(true);
+    } else if (hasUncodedFiles) {
+      regenerateCodes();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentStep, hasReviewFiles, codeMethod, hasUncodedFiles]);
   const [showResetConfirm, setShowResetConfirm] = React.useState(false);
   const [showDeleteAll, setShowDeleteAll] = React.useState(false);
   const [showDeleteAllFolders, setShowDeleteAllFolders] = React.useState(false);
@@ -104,9 +129,12 @@ export default function DocumentOrganizer() {
 
   // Code generation method picker
   const [showCodeMethodModal, setShowCodeMethodModal] = React.useState(false);
+  const [showAITitles, setShowAITitles] = React.useState(false);
 
   // ZIP naming mode picker
   const [showZipNamingModal, setShowZipNamingModal] = React.useState(false);
+  const [showExcelNamingModal, setShowExcelNamingModal] = React.useState(false);
+  const [excelStripPrefix, setExcelStripPrefix] = React.useState(false);
 
   const openUploadModal = (folderId) => {
     setUploadModalFolderId(folderId);
@@ -172,11 +200,43 @@ export default function DocumentOrganizer() {
 
   const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = () => setIsDragging(false);
-  const handleDrop = (e) => {
+  const handleDrop = async (e) => {
     e.preventDefault();
     setIsDragging(false);
-    const droppedFiles = Array.from(e.dataTransfer.files);
-    if (droppedFiles.length > 0) handleFileUpload({ target: { files: droppedFiles } });
+
+    // dataTransfer.files lists a dropped folder as a zero-byte entry, so read the
+    // item entries instead and separate folders from files.
+    const entries = Array.from(e.dataTransfer.items)
+      .map(item => item.webkitGetAsEntry?.())
+      .filter(Boolean);
+
+    const droppedFolders = entries.filter(entry => entry.isDirectory);
+    const droppedFiles = (await Promise.all(
+      entries
+        .filter(entry => entry.isFile)
+        .map(entry => new Promise(resolve => entry.file(resolve, () => resolve(null))))
+    )).filter(Boolean);
+
+    const isSupported = (file) => file.type.startsWith('image/') || /\.pdf$/i.test(file.name);
+    const accepted = droppedFiles.filter(isSupported);
+    const rejected = droppedFiles.filter(file => !isSupported(file));
+
+    if (droppedFolders.length > 0 || rejected.length > 0) {
+      const reasons = [];
+      if (droppedFolders.length > 0) {
+        reasons.push(`Mape niso podprte (${droppedFolders.map(f => f.name).join(', ')}).`);
+      }
+      if (rejected.length > 0) {
+        reasons.push(`Nepodprti tipi datotek: ${rejected.map(f => f.name).join(', ')}.`);
+      }
+      reasons.push('Naložite lahko samo PDF, PNG, JPG in JPEG datoteke.');
+      if (accepted.length > 0) {
+        reasons.push(`Naloženih bo ${accepted.length} podprtih datotek.`);
+      }
+      alert(reasons.join('\n\n'));
+    }
+
+    if (accepted.length > 0) handleFileUpload({ target: { files: accepted } });
   };
 
   const handleImport = (e) => {
@@ -195,7 +255,14 @@ export default function DocumentOrganizer() {
     e.target.value = '';
   };
 
-  const totalFilesForBanner = isFinalized ? processedFilesCount : 0;
+  const totalFilesForBanner = isFinalized ? (() => {
+    const combined = new Map();
+    finalResults.forEach(f => combined.set(f.id || f.fileName, f));
+    directUploads.forEach(f => { const k = f.id || f.fileName; if (!combined.has(k)) combined.set(k, f); });
+    return combined.size;
+  })() : 0;
+
+  const hasDownloads = isFinalized && totalFilesForBanner > 0;
 
   const metadataExtractionFiles = (() => {
     const combined = new Map();
@@ -243,7 +310,7 @@ export default function DocumentOrganizer() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-8">
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-[1400px] mx-auto">
         <div className="flex items-center justify-between mb-6 px-2">
           <div className="flex items-center gap-3">
             <img
@@ -253,8 +320,9 @@ export default function DocumentOrganizer() {
             />
           </div>
         </div>
-        
-        <div className="bg-white rounded-lg shadow-xl p-8 relative">
+
+        <div className="flex gap-6 items-start">
+        <div className="flex-1 min-w-0 bg-white rounded-lg shadow-xl p-8 relative">
           <div className="absolute top-6 right-6 flex gap-2">
             {processedFilesCount > 0 && (
               <button
@@ -280,54 +348,6 @@ export default function DocumentOrganizer() {
             Organizator Dokumentov DZO
           </h1>
           <p className="text-gray-600 mb-8">AI klasifikacija dokumentov z OCR</p>
-
-          {isFinalized && totalFilesForBanner > 0 && (
-            <div className="mb-8 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-2xl shadow-sm overflow-hidden">
-              <div className="flex flex-col md:flex-row items-center justify-between p-6 gap-6">
-                <div 
-                  className="flex-1 flex items-center gap-4 cursor-pointer group"
-                  onClick={() => setShowProcessedFiles(true)}
-                >
-                  <div className="bg-blue-600 p-3 rounded-xl text-white shadow-lg shadow-blue-200 group-hover:scale-110 transition-transform">
-                    <CheckCircle size={28} />
-                  </div>
-                  <div>
-                    <p className="text-xs font-black text-blue-500 uppercase tracking-widest mb-0.5">Uspešno procesirano</p>
-                    <div className="flex items-center gap-2">
-                      <span className="text-3xl font-black text-slate-900 leading-none">{totalFilesForBanner}</span>
-                      <span className="text-slate-600 font-semibold">dokumentov</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-wrap md:flex-nowrap gap-3 w-full md:w-auto">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowPDFWatermarkModal(true); }}
-                    disabled={isDownloading}
-                    className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-red-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-red-700 disabled:bg-slate-400 transition-all active:scale-95 shadow-md"
-                  >
-                    {isDownloading ? <Loader2 className="animate-spin" size={20} /> : <FileText size={20} />}
-                    <span>Združen PDF</span>
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setShowZipNamingModal(true); }}
-                    disabled={isDownloading}
-                    className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-white text-blue-700 border-2 border-blue-600 px-6 py-3 rounded-xl font-bold hover:bg-blue-50 disabled:bg-slate-100 disabled:border-slate-200 disabled:text-slate-400 transition-all active:scale-95 shadow-sm"
-                  >
-                    {isDownloading ? <Loader2 className="animate-spin" size={20} /> : <Download size={20} />}
-                    <span>ZIP Arhiv</span>
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDownloadExcel(); }}
-                    disabled={isDownloadingExcel}
-                    className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-emerald-700 disabled:bg-slate-400 transition-all active:scale-95 shadow-md shadow-emerald-100"
-                  >
-                    {isDownloadingExcel ? <Loader2 className="animate-spin" size={20} /> : <FileText size={20} />}
-                    <span>Excel Seznam</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Progress Indicator */}
           <div className="flex items-center justify-between mb-8 pb-6 border-b overflow-x-auto">
@@ -550,22 +570,20 @@ export default function DocumentOrganizer() {
                   </span>
                   {!isDragging && <span className="text-gray-600 text-lg"> ali povlecite datoteke</span>}
                 </label>
-                <p className="text-sm text-gray-500 mt-3">PDF, PNG, JPG, JPEG do 150MB</p>
+                <p className="text-sm text-gray-500 mt-3">PDF, PNG, JPG, JPEG</p>
               </div>
-              
+
               {files.length > 0 && (
-                <div className="mt-4 flex items-center justify-center gap-6 text-sm">
+                <div className="mt-4 mb-4 flex items-center justify-center gap-6 text-sm">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-gray-700">Število datotek:</span>
-                    <span className={`font-bold ${files.length > 200 ? 'text-red-600' : 'text-indigo-600'}`}>
-                      {files.length} / 200
-                    </span>
+                    <span className="font-bold text-indigo-600">{files.length}</span>
                   </div>
                   <div className="h-4 w-px bg-gray-300"></div>
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-gray-700">Skupna velikost:</span>
-                    <span className={`font-bold ${(files.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024) > 150 ? 'text-red-600' : 'text-indigo-600'}`}>
-                      {(files.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024).toFixed(1)} / 150 MB
+                    <span className="font-bold text-indigo-600">
+                      {(files.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024).toFixed(1)} MB
                     </span>
                   </div>
                 </div>
@@ -757,16 +775,86 @@ export default function DocumentOrganizer() {
                   <h2 className="text-2xl font-bold text-gray-800">Pregled in Urejanje Dokumentov</h2>
                   <p className="text-sm text-gray-600 mt-1">Preglejte in uredite dokumente pred finalizacijo</p>
                 </div>
+                <div className="flex items-center gap-3 flex-shrink-0">
+                  <div className="flex rounded-lg border-2 border-indigo-300 overflow-hidden">
+                    <button
+                      onClick={() => setReviewViewMode('tree')}
+                      className={`px-3 py-2 flex items-center gap-2 text-sm font-medium transition-colors ${
+                        reviewViewMode === 'tree'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                      }`}
+                    >
+                      <FolderTree size={16} />
+                      Mape
+                    </button>
+                    <button
+                      onClick={() => setReviewViewMode('list')}
+                      className={`px-3 py-2 flex items-center gap-2 text-sm font-medium transition-colors ${
+                        reviewViewMode === 'list'
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                      }`}
+                    >
+                      <List size={16} />
+                      Seznam
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setShowAITitles(v => !v)}
+                    className={`px-4 py-2 rounded-lg border-2 transition-colors font-medium text-sm ${
+                      showAITitles
+                        ? 'border-purple-600 bg-purple-600 text-white hover:bg-purple-700'
+                        : 'border-purple-300 text-purple-700 bg-purple-50 hover:bg-purple-100'
+                    }`}
+                  >
+                    {showAITitles ? 'Prikaži originalna imena' : 'Prikaži AI naslove'}
+                  </button>
+                </div>
               </div>
+
+              {foreignLanguageDocs.length > 0 && (
+                <button
+                  onClick={() => setShowTranslationModal(true)}
+                  className="w-full mb-4 flex items-center gap-3 p-4 bg-amber-50 border-2 border-amber-300 rounded-lg hover:bg-amber-100 hover:border-amber-400 transition-colors text-left group"
+                >
+                  <div className="bg-amber-500 p-2 rounded-lg text-white group-hover:scale-110 transition-transform">
+                    <Languages size={22} />
+                  </div>
+                  <div className="flex-1">
+                    <p className="font-bold text-amber-900">
+                      {foreignLanguageDocs.length === 1
+                        ? '1 dokument je v tujem jeziku'
+                        : `${foreignLanguageDocs.length} dokumentov je v tujem jeziku`}
+                    </p>
+                    <p className="text-sm text-amber-700">
+                      Kliknite za pregled in prevod v slovenščino
+                    </p>
+                  </div>
+                  <span className="text-amber-600 font-bold text-xl">→</span>
+                </button>
+              )}
+
               <div className="border-2 border-gray-200 rounded-lg p-4 bg-gray-50 mb-6 max-h-[600px] overflow-y-auto">
-                <FolderTreeStep5 
-                  folders={folders}
-                  finalResults={finalResults}
-                  directUploads={directUploads}
-                  toggleFolder={toggleFolder}
-                  startFileEdit={startFileEdit}
-                  removeFileFromReview={removeFileFromReview}
-                />
+                {reviewViewMode === 'tree' ? (
+                  <FolderTreeStep5
+                    folders={folders}
+                    finalResults={finalResults}
+                    directUploads={directUploads}
+                    toggleFolder={toggleFolder}
+                    startFileEdit={startFileEdit}
+                    removeFileFromReview={removeFileFromReview}
+                    showAITitles={showAITitles}
+                  />
+                ) : (
+                  <DocumentListView
+                    folders={folders}
+                    finalResults={finalResults}
+                    directUploads={directUploads}
+                    removeFilesFromReview={removeFilesFromReview}
+                    showAITitles={showAITitles}
+                  />
+                )}
               </div>
               <div className="flex gap-4">
                 <button
@@ -784,22 +872,14 @@ export default function DocumentOrganizer() {
                 </button>
                 <button
                   onClick={() => setShowCodeMethodModal(true)}
-                  disabled={isGeneratingCodes}
+                  disabled={isGeneratingCodes || !hasReviewFiles}
                   className="flex-1 bg-red-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 text-lg"
                 >
                   {isGeneratingCodes ? (
                     <><Loader2 className="animate-spin" size={20} />Generiram...</>
                   ) : (
-                    <><CheckCircle size={20} />Generiraj šifre</>
+                    <><CheckCircle size={20} />Izberi način šifriranja</>
                   )}
-                </button>
-                <button
-                  onClick={finalizeDocuments}
-                  disabled={(!finalResults.length && !directUploads.length) || isGeneratingCodes}
-                  className="flex-1 bg-emerald-600 text-white px-6 py-4 rounded-lg font-bold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2 text-lg"
-                >
-                  <CheckCircle size={20} />
-                  {isFinalized ? 'Posodobi' : 'Procesiraj'}
                 </button>
               </div>
             </div>
@@ -858,6 +938,81 @@ export default function DocumentOrganizer() {
                     Prekliči
                   </button>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Excel naming mode picker modal */}
+          {showExcelNamingModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-lg mx-4">
+                <h3 className="text-lg font-bold text-gray-800 mb-1">Prenesi Excel Seznam</h3>
+                <p className="text-sm text-gray-500 mb-5">Izberi kako naj bodo prikazani naslovi dokumentov:</p>
+
+                <div className="flex flex-col gap-3">
+                  <button
+                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('combined', excelStripPrefix); }}
+                    className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left group"
+                  >
+                    <div className="mt-0.5 w-8 h-8 rounded-full bg-emerald-100 group-hover:bg-emerald-200 flex items-center justify-center flex-shrink-0 font-bold text-emerald-600 text-sm transition-colors">1</div>
+                    <div>
+                      <p className="font-semibold text-gray-800">AI naslov + originalno ime skupaj</p>
+                      <p className="text-sm text-gray-500 mt-0.5">Oba v isti celici, vsak v svoji vrstici <span className="font-mono text-gray-700">(privzeto)</span></p>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('split', excelStripPrefix); }}
+                    className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left group"
+                  >
+                    <div className="mt-0.5 w-8 h-8 rounded-full bg-emerald-100 group-hover:bg-emerald-200 flex items-center justify-center flex-shrink-0 font-bold text-emerald-600 text-sm transition-colors">2</div>
+                    <div>
+                      <p className="font-semibold text-gray-800">AI naslov in originalno ime v ločenih stolpcih</p>
+                      <p className="text-sm text-gray-500 mt-0.5">Vsak v svojem stolpcu za lažje filtriranje</p>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('original', excelStripPrefix); }}
+                    className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left group"
+                  >
+                    <div className="mt-0.5 w-8 h-8 rounded-full bg-emerald-100 group-hover:bg-emerald-200 flex items-center justify-center flex-shrink-0 font-bold text-emerald-600 text-sm transition-colors">3</div>
+                    <div>
+                      <p className="font-semibold text-gray-800">Samo originalno ime datoteke</p>
+                      <p className="text-sm text-gray-500 mt-0.5">Brez AI naslova</p>
+                    </div>
+                  </button>
+
+                  <button
+                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('ai', excelStripPrefix); }}
+                    className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left group"
+                  >
+                    <div className="mt-0.5 w-8 h-8 rounded-full bg-emerald-100 group-hover:bg-emerald-200 flex items-center justify-center flex-shrink-0 font-bold text-emerald-600 text-sm transition-colors">4</div>
+                    <div>
+                      <p className="font-semibold text-gray-800">Samo AI naslov dokumenta</p>
+                      <p className="text-sm text-gray-500 mt-0.5">Datoteke brez AI naslova dobijo originalno ime</p>
+                    </div>
+                  </button>
+                </div>
+
+
+<div className="mt-5 flex justify-end">
+                  <button
+                    onClick={() => setShowExcelNamingModal(false)}
+                    className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    Prekliči
+                  </button>
+                </div>
+                <label className="mt-4 flex items-center gap-3 cursor-pointer select-none border-t pt-4">
+                  <input
+                    type="checkbox"
+                    checked={excelStripPrefix}
+                    onChange={e => setExcelStripPrefix(e.target.checked)}
+                    className="w-4 h-4 accent-emerald-600"
+                  />
+                  <span className="text-sm text-gray-700">Odstrani zaporedno številko iz imena <span className="font-mono text-gray-500">001_, 002_, ...</span></span>
+                </label>
               </div>
             </div>
           )}
@@ -931,11 +1086,30 @@ export default function DocumentOrganizer() {
             files={directUploads}
             folders={folders}
           />
-          <ProcessedFilesModal 
-            isOpen={showProcessedFiles}
-            onClose={() => setShowProcessedFiles(false)}
-            processedFiles={processedFiles}
-          />
+          {showProcessedFiles && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[85vh] flex flex-col">
+                <div className="p-5 border-b flex items-center justify-between">
+                  <h3 className="text-xl font-bold text-gray-800">Procesirani dokumenti</h3>
+                  <button
+                    onClick={() => setShowProcessedFiles(false)}
+                    className="text-gray-500 hover:text-gray-700 text-2xl font-bold leading-none"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="p-5 overflow-y-auto">
+                  <DocumentListView
+                    folders={folders}
+                    finalResults={finalResults}
+                    directUploads={directUploads}
+                    removeFilesFromReview={removeFilesFromReview}
+                    showAITitles={showAITitles}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
           <ResetConfirmModal 
             isOpen={showResetConfirm}
             onClose={() => setShowResetConfirm(false)}
@@ -1016,6 +1190,91 @@ export default function DocumentOrganizer() {
             progress={metadataProgress}
             onExtract={extractMetadataForSelectedFiles}
           />
+          <TranslationModal
+            isOpen={showTranslationModal}
+            onClose={() => setShowTranslationModal(false)}
+            documents={foreignLanguageDocs}
+            isTranslating={isTranslating}
+            progress={translationProgress}
+            onTranslate={translateDocuments}
+          />
+        </div>
+
+        {/* Download sidebar — always present; greyed out until documents are processed */}
+        <aside className="w-72 flex-shrink-0 sticky top-8">
+          <div className={`bg-white rounded-2xl shadow-xl border overflow-hidden transition-opacity ${
+            hasDownloads ? 'border-blue-100' : 'border-slate-200 opacity-60'
+          }`}>
+            <button
+              onClick={() => setShowProcessedFiles(true)}
+              disabled={!hasDownloads}
+              className={`w-full flex items-center gap-3 p-5 text-left group border-b transition-colors ${
+                hasDownloads
+                  ? 'bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 border-blue-100 cursor-pointer'
+                  : 'bg-slate-50 border-slate-200 cursor-not-allowed'
+              }`}
+            >
+              <div className={`p-2.5 rounded-xl text-white shadow-lg transition-transform ${
+                hasDownloads
+                  ? 'bg-blue-600 shadow-blue-200 group-hover:scale-110'
+                  : 'bg-slate-400 shadow-slate-200'
+              }`}>
+                <CheckCircle size={24} />
+              </div>
+              <div>
+                <p className={`text-[10px] font-black uppercase tracking-widest mb-0.5 ${
+                  hasDownloads ? 'text-blue-500' : 'text-slate-400'
+                }`}>
+                  Dokumenti za prenos
+                </p>
+                {hasDownloads ? (
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-2xl font-black text-slate-900 leading-none">{totalFilesForBanner}</span>
+                    <span className="text-slate-600 font-semibold text-sm">dokumentov</span>
+                  </div>
+                ) : (
+                  <span className="text-sm text-slate-400 font-medium">Še ni dokumentov</span>
+                )}
+              </div>
+            </button>
+
+            <div className="flex flex-col gap-2.5 p-4">
+              {hasDownloads && currentStep !== 5 && (
+                <button
+                  onClick={() => setCurrentStep(5)}
+                  className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-all active:scale-95 shadow-md text-sm mb-1"
+                >
+                  <Eye size={18} />
+                  <span>Pregled dokumentov</span>
+                </button>
+              )}
+              <button
+                onClick={() => setShowPDFWatermarkModal(true)}
+                disabled={!hasDownloads || isDownloading}
+                className="w-full flex items-center justify-center gap-2 bg-red-600 text-white px-4 py-3 rounded-xl font-bold hover:bg-red-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md text-sm"
+              >
+                {isDownloading ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
+                <span>Združen PDF</span>
+              </button>
+              <button
+                onClick={() => setShowZipNamingModal(true)}
+                disabled={!hasDownloads || isDownloading}
+                className="w-full flex items-center justify-center gap-2 bg-white text-blue-700 border-2 border-blue-600 px-4 py-3 rounded-xl font-bold hover:bg-blue-50 disabled:bg-slate-100 disabled:border-slate-200 disabled:text-slate-400 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm text-sm"
+              >
+                {isDownloading ? <Loader2 className="animate-spin" size={18} /> : <Download size={18} />}
+                <span>ZIP Arhiv</span>
+              </button>
+              <button
+                onClick={() => setShowExcelNamingModal(true)}
+                disabled={!hasDownloads || isDownloadingExcel}
+                className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white px-4 py-3 rounded-xl font-bold hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed transition-all active:scale-95 shadow-md shadow-emerald-100 text-sm"
+              >
+                {isDownloadingExcel ? <Loader2 className="animate-spin" size={18} /> : <FileText size={18} />}
+                <span>Excel Seznam</span>
+              </button>
+            </div>
+          </div>
+        </aside>
         </div>
 
         <div className="mt-8 text-center text-gray-600 text-sm">

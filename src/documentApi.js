@@ -30,6 +30,7 @@ export const processOCR = async (files, password, onProgress, onResult) => {
       results.push({
         fileName: data.fileName,
         extractedText: data.text || "No text found.",
+        isNativePdf: Boolean(data.isNativePdf),
         originalFile: file
       });
     } catch (error) {
@@ -37,6 +38,7 @@ export const processOCR = async (files, password, onProgress, onResult) => {
       results.push({
         fileName: file.name,
         extractedText: "Error during OCR processing.",
+        isNativePdf: false,
         originalFile: file
       });
     }
@@ -101,7 +103,9 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
           documentTitle: item.classification.documentTitle || "",
           issuer: item.classification.issuer || "",
           documentNumber: item.classification.documentNumber || "",
-          date: item.classification.date || ""
+          date: item.classification.date || "",
+          language: (item.classification.language || "sl").toLowerCase(),
+          processedAt: new Date().toISOString()
         });
       }
 
@@ -122,7 +126,9 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
           ...result,
           suggestedFolder: { id: folders[0].id, name: folders[0].name, fullPath: folders[0].name },
           fileNumber: 1,
-          docCode: '0.001'
+          docCode: '0.001',
+          language: 'sl',
+          processedAt: new Date().toISOString()
         });
       }
       
@@ -165,4 +171,23 @@ export const extractMetadataBatch = async (files, password) => {
       date: '',
     }));
   }
+};
+
+// Translates one native-PDF file into Slovenian, returning the translated PDF as a Blob.
+export const translatePdf = async (file, sourceLanguage, password) => {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('sourceLanguage', sourceLanguage || 'unknown');
+
+  const response = await fetch(`${API_BASE}/api/translate-pdf`, {
+    method: 'POST',
+    headers: { 'X-Password': password },
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({}));
+    throw new Error(detail.detail || 'Prevajanje ni uspelo');
+  }
+  return response.blob();
 };

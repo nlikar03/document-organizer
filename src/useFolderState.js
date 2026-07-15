@@ -132,9 +132,26 @@ export const useFolderState = () => {
   // ── Sort ───────────────────────────────────────────────────────────────────
 
   const sortFoldersByNumber = () => {
+    const ROMAN_MAP = { I:1, V:5, X:10, L:50, C:100, D:500, M:1000 };
+    const parseRoman = (s) => {
+      let val = 0;
+      for (let i = 0; i < s.length; i++) {
+        const cur = ROMAN_MAP[s[i]], nxt = ROMAN_MAP[s[i+1]];
+        if (!cur) return null;
+        val += nxt > cur ? -cur : cur;
+      }
+      return val;
+    };
+
     const getNumericKey = (name) => {
-      const match = name.match(/^(\d+(?:\.\d+)*)/);
-      return match ? match[1].split('.').map(Number) : [Infinity];
+      const arabic = name.match(/^(\d+(?:\.\d+)*)/);
+      if (arabic) return arabic[1].split('.').map(Number);
+      const roman = name.match(/^([IVXLCDM]+)[\s.]/i);
+      if (roman) {
+        const val = parseRoman(roman[1].toUpperCase());
+        if (val !== null) return [val];
+      }
+      return [Infinity];
     };
 
     const compareByName = (a, b) => {

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { defaultStructure } from './documentUtils';
 import { useFolderState } from './useFolderState';
 import { useFileProcessing } from './useFileProcessing';
+import { downloadZipClientSide, downloadMergedPDF, downloadExcelClientSide } from './clientDownloads';
 
 export const useDocumentState = () => {
   // ── Sub-hooks ──────────────────────────────────────────────────────────────
@@ -57,12 +58,21 @@ export const useDocumentState = () => {
     const saved = localStorage.getItem('skippedAIClassification');
     return saved ? JSON.parse(saved) : false;
   });
+  // 'sequential' | 'hierarchical' | null — remembered so returning to step 5 with new
+  // files can re-number them without asking again.
+  const [codeMethod, setCodeMethod] = useState(() => localStorage.getItem('codeMethod') || null);
 
   // ── localStorage wrappers ──────────────────────────────────────────────────
 
   const setCurrentStepWithSave = (step) => {
     setCurrentStep(step);
     localStorage.setItem('currentStep', step.toString());
+  };
+
+  const setCodeMethodWithSave = (method) => {
+    setCodeMethod(method);
+    if (method) localStorage.setItem('codeMethod', method);
+    else localStorage.removeItem('codeMethod');
   };
 
   const setFinalResultsWithSave = (results) => {
@@ -172,6 +182,15 @@ export const useDocumentState = () => {
   const removeFileFromReview = (fileId) => {
     setFinalResultsWithSave(prev => prev.filter(f => f.id !== fileId));
     setDirectUploadsWithSave(prev => prev.filter(f => f.id !== fileId));
+    if (isFinalized) setProcessedFilesCountWithSave(prev => Math.max(0, prev - 1));
+  };
+
+  const removeFilesFromReview = (fileIds) => {
+    const ids = new Set(fileIds);
+    if (ids.size === 0) return;
+    setFinalResultsWithSave(prev => prev.filter(f => !ids.has(f.id)));
+    setDirectUploadsWithSave(prev => prev.filter(f => !ids.has(f.id)));
+    if (isFinalized) setProcessedFilesCountWithSave(prev => Math.max(0, prev - ids.size));
   };
 
   const removeDirectUpload = (fileId) =>
@@ -231,6 +250,8 @@ export const useDocumentState = () => {
           : { ...file, fileNumber: seq, docCode, isDirectUpload: true };
       });
       commitFinalizedFiles(finalizedFiles);
+      setCodeMethodWithSave('sequential');
+      finalizeFileList(finalizedFiles);
     } catch (error) {
       console.error('Code generation error:', error);
       alert('Napaka pri generiranju kod dokumentov');
@@ -299,6 +320,8 @@ export const useDocumentState = () => {
       });
 
       commitFinalizedFiles(finalizedFiles);
+      setCodeMethodWithSave('hierarchical');
+      finalizeFileList(finalizedFiles);
     } catch (error) {
       console.error('Code generation error (hierarchical):', error);
       alert('Napaka pri generiranju hierarhičnih kod dokumentov');
@@ -308,6 +331,37 @@ export const useDocumentState = () => {
   };
 
   // ── Finalize ───────────────────────────────────────────────────────────────
+
+  // Finalizing right after code generation can't read finalResults/directUploads —
+  // React hasn't re-rendered yet — so it takes the freshly-coded list directly.
+  const finalizeFileList = (allReviewFiles) => {
+    if (allReviewFiles.length === 0) return;
+    if (allReviewFiles.some(f => !f.docCode)) return;
+    const newFileNames = allReviewFiles.map(r => r.fileName).filter(name => !processedFiles.includes(name));
+    setProcessedFilesWithSave(prev => [...prev, ...newFileNames]);
+    setProcessedFilesCountWithSave(processedFilesCount + newFileNames.length);
+    setIsFinalizedWithSave(true);
+  };
+
+  // ── Translation ────────────────────────────────────────────────────────────
+
+  // Documents the LLM detected as not being Slovenian. Only native-PDF ones can
+  // actually be translated; scans are listed but not selectable.
+  const foreignLanguageDocs = [...finalResults, ...directUploads].filter(
+    f => f.language && f.language !== 'sl' && !f.translatedFileName
+  );
+
+  const translateDocuments = (documents) =>
+    fileProcessing.translateDocuments(documents, setDirectUploadsWithSave, setFinalResultsWithSave);
+
+  // Re-runs the previously chosen numbering method, so files added after the first
+  // pass get codes too, without re-prompting.
+  const regenerateCodes = () => {
+    if (codeMethod === 'hierarchical') return generateDocumentCodesHierarchical();
+    if (codeMethod === 'sequential') return generateDocumentCodes();
+  };
+
+  const hasUncodedFiles = [...finalResults, ...directUploads].some(f => !f.docCode);
 
   const finalizeDocuments = () => {
     const allReviewFiles = [...finalResults, ...directUploads];
@@ -319,10 +373,7 @@ export const useDocumentState = () => {
       alert('Vsi dokumenti morajo imeti generirano šifro pred finalizacijo.');
       return;
     }
-    const newFileNames = allReviewFiles.map(r => r.fileName).filter(name => !processedFiles.includes(name));
-    setProcessedFilesWithSave(prev => [...prev, ...newFileNames]);
-    setProcessedFilesCountWithSave(processedFilesCount + newFileNames.length);
-    setIsFinalizedWithSave(true);
+    finalizeFileList(allReviewFiles);
   };
 
   // ── Downloads ──────────────────────────────────────────────────────────────
@@ -330,7 +381,6 @@ export const useDocumentState = () => {
   const handleDownloadMergedPDF = async (addWatermark) => {
     setIsDownloading(true);
     try {
-      const { downloadMergedPDF } = await import('./clientDownloads');
       return await downloadMergedPDF([...finalResults, ...directUploads], folderState.folders, addWatermark);
     } catch (error) {
       console.error('Merged PDF failed:', error);
@@ -343,7 +393,6 @@ export const useDocumentState = () => {
   const handleDownloadZip = async (namingMode = 'original') => {
     setIsDownloading(true);
     try {
-      const { downloadZipClientSide } = await import('./clientDownloads');
       await downloadZipClientSide([...finalResults, ...directUploads], folderState.folders, namingMode);
     } catch (error) {
       console.error('Download failed:', error);
@@ -353,11 +402,10 @@ export const useDocumentState = () => {
     }
   };
 
-  const handleDownloadExcel = async () => {
+  const handleDownloadExcel = async (titleMode = 'combined', stripPrefix = false) => {
     setIsDownloadingExcel(true);
     try {
-      const { downloadExcelClientSide } = await import('./clientDownloads');
-      await downloadExcelClientSide([...finalResults, ...directUploads], folderState.folders);
+      await downloadExcelClientSide([...finalResults, ...directUploads], folderState.folders, titleMode, stripPrefix);
     } catch (error) {
       console.error('Excel download failed:', error);
       alert(`Prenos Excel datoteke ni uspel: ${error.message}`);
@@ -391,6 +439,7 @@ export const useDocumentState = () => {
     setIsMetadataExtracted(false);
     setIsFinalized(false);
     setSkippedAIClassification(false);
+    setCodeMethod(null);
     localStorage.clear();
     folderState.setFoldersWithSave(defaultStructure);
     const { clearAllFiles } = await import('./indexedDBHelper');
@@ -429,11 +478,12 @@ export const useDocumentState = () => {
     isAuthenticated: fileProcessing.isAuthenticated,
     authError: fileProcessing.authError,
     authLoading: fileProcessing.authLoading,
+    handleLogout: fileProcessing.handleLogout,
     isExtractingMetadata: fileProcessing.isExtractingMetadata,
     metadataProgress: fileProcessing.metadataProgress,
     showMetadataModal: fileProcessing.showMetadataModal,
     setPassword: fileProcessing.setPassword,
-    handleFileUpload: fileProcessing.handleFileUpload,
+    handleFileUpload: (e) => fileProcessing.handleFileUpload(e, processedFiles),
     removeFile: fileProcessing.removeFile,
     removeAllFiles: fileProcessing.removeAllFiles,
     handlePasswordSubmit: fileProcessing.handlePasswordSubmit,
@@ -475,8 +525,18 @@ export const useDocumentState = () => {
     saveFileEdit,
     cancelFileEdit,
     removeFileFromReview,
+    removeFilesFromReview,
     generateDocumentCodes,
     generateDocumentCodesHierarchical,
+    codeMethod,
+    regenerateCodes,
+    hasUncodedFiles,
+    foreignLanguageDocs,
+    isTranslating: fileProcessing.isTranslating,
+    translationProgress: fileProcessing.translationProgress,
+    showTranslationModal: fileProcessing.showTranslationModal,
+    setShowTranslationModal: fileProcessing.setShowTranslationModal,
+    translateDocuments,
     finalizeDocuments,
     handleDownloadMergedPDF,
     handleDownloadZip,

@@ -192,7 +192,8 @@ export const FolderTreeStep5 = ({
   directUploads,
   toggleFolder,
   startFileEdit,
-  removeFileFromReview
+  removeFileFromReview,
+  showAITitles,
 }) => {
   // Build the deduplicated file list once for the whole tree
   const reviewFileMap = new Map();
@@ -256,7 +257,9 @@ export const FolderTreeStep5 = ({
                   <FileText size={16} className="text-blue-600 flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <p className="text-sm font-medium text-gray-800 truncate">{file.fileName}</p>
+                      <p className="text-sm font-medium text-gray-800 truncate">
+                        {showAITitles && file.documentTitle ? file.documentTitle : file.fileName}
+                      </p>
                       {isAIClassified && (
                         <span className="flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-semibold flex-shrink-0">
                           <Brain size={12} />
