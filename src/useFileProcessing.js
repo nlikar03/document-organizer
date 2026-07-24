@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { verifyPassword, processOCR, processAI, translatePdf } from './documentApi';
 import { saveFileToIndexedDB, getFileFromIndexedDB } from './indexedDBHelper';
+import { TRANSLATION_MAX_PAGES } from './documentUtils';
 
 export const useFileProcessing = () => {
   const [files, setFiles] = useState([]);
@@ -331,13 +332,17 @@ export const useFileProcessing = () => {
     const translated = {};
     const failed = [];
 
+    const truncated = {};        // docId -> { translatedPages, originalPages }
+    const truncatedNames = [];
+
     for (let i = 0; i < documents.length; i++) {
       const doc = documents[i];
       try {
         const original = await getFileFromIndexedDB(doc.fileName);
         if (!original) throw new Error('Datoteke ni v shrambi');
 
-        const blob = await translatePdf(original, doc.language, password);
+        const { blob, originalPages, translatedPages, truncated: wasTruncated } =
+          await translatePdf(original, doc.language, password);
 
         const dot = doc.fileName.lastIndexOf('.');
         const translatedName = dot === -1
@@ -346,6 +351,10 @@ export const useFileProcessing = () => {
 
         await saveFileToIndexedDB(translatedName, blob);
         translated[doc.id] = translatedName;
+        if (wasTruncated) {
+          truncated[doc.id] = { translatedPages, originalPages };
+          truncatedNames.push(`${doc.fileName} (${translatedPages}/${originalPages} strani)`);
+        }
       } catch (error) {
         console.error(`Translation failed for ${doc.fileName}:`, error);
         failed.push(doc.fileName);
@@ -354,7 +363,13 @@ export const useFileProcessing = () => {
     }
 
     const applyTranslation = (file) =>
-      translated[file.id] ? { ...file, translatedFileName: translated[file.id] } : file;
+      translated[file.id]
+        ? {
+            ...file,
+            translatedFileName: translated[file.id],
+            translationTruncated: truncated[file.id] || null,
+          }
+        : file;
 
     setFinalResultsWithSave(prev => prev.map(applyTranslation));
     setDirectUploadsWithSave(prev => prev.map(applyTranslation));
@@ -362,6 +377,11 @@ export const useFileProcessing = () => {
     setIsTranslating(false);
     setShowTranslationModal(false);
 
+    if (truncatedNames.length > 0) {
+      alert(
+        `Prevod je omejen na prvih ${TRANSLATION_MAX_PAGES} strani. Naslednji dokumenti so bili skrajšani:\n\n${truncatedNames.join('\n')}`
+      );
+    }
     if (failed.length > 0) {
       alert(`Prevod ni uspel za:\n\n${failed.join('\n')}`);
     }

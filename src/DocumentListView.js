@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Trash2, FileText, ArrowUpDown, Eye } from 'lucide-react';
+import { Trash2, FileText, ArrowUpDown, Eye, Edit2 } from 'lucide-react';
 
 const formatDateTime = (iso) => {
   if (!iso) return '—';
@@ -14,7 +14,7 @@ const formatDateTime = (iso) => {
 const formatSize = (bytes) =>
   typeof bytes === 'number' ? `${(bytes / 1024).toFixed(1)} KB` : '—';
 
-const DocumentListView = ({ folders, finalResults, directUploads, removeFilesFromReview, showAITitles, onPreviewTranslation }) => {
+const DocumentListView = ({ folders, finalResults, directUploads, removeFilesFromReview, showAITitles, onPreviewTranslation, onEditFile }) => {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [anchorIndex, setAnchorIndex] = useState(null);
   const [sortBy, setSortBy] = useState('processedAt');
@@ -39,6 +39,7 @@ const DocumentListView = ({ folders, finalResults, directUploads, removeFilesFro
             || folderNameById.get(file.folderId)
             || 'Nerazvrščeno',
           sourceLabel: file.isDirectUpload ? 'Ročno' : 'AI',
+          _original: file,   // clean record for the edit modal (no derived fields)
         });
       }
     });
@@ -256,24 +257,36 @@ const DocumentListView = ({ folders, finalResults, directUploads, removeFilesFro
                     </span>
                   </td>
                   <td className="px-3 py-2">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        if (window.confirm(`Odstrani "${row.fileName}"?`)) {
-                          removeFilesFromReview([row.id]);
-                          setSelectedIds(prev => {
-                            const next = new Set(prev);
-                            next.delete(row.id);
-                            return next;
-                          });
-                          setAnchorIndex(null);
-                        }
-                      }}
-                      className="p-1 hover:bg-red-100 rounded transition-colors"
-                      title="Odstrani"
-                    >
-                      <Trash2 size={14} className="text-red-600" />
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onEditFile?.(row.id, row._original);
+                        }}
+                        className="p-1 hover:bg-indigo-100 rounded transition-colors"
+                        title="Uredi"
+                      >
+                        <Edit2 size={14} className="text-indigo-600" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (window.confirm(`Odstrani "${row.fileName}"?`)) {
+                            removeFilesFromReview([row.id]);
+                            setSelectedIds(prev => {
+                              const next = new Set(prev);
+                              next.delete(row.id);
+                              return next;
+                            });
+                            setAnchorIndex(null);
+                          }
+                        }}
+                        className="p-1 hover:bg-red-100 rounded transition-colors"
+                        title="Odstrani"
+                      >
+                        <Trash2 size={14} className="text-red-600" />
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

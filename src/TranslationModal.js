@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Languages, Loader2, AlertTriangle, FileText } from 'lucide-react';
+import { Languages, Loader2, AlertTriangle, FileText, Info } from 'lucide-react';
+import { TRANSLATION_MAX_PAGES } from './documentUtils';
 
 const LANGUAGE_NAMES = {
   hr: 'hrvaščina',
@@ -100,6 +101,14 @@ export const TranslationModal = ({ isOpen, onClose, documents, isTranslating, pr
             </div>
           ) : (
             <>
+              <div className="mb-4 flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <Info size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-blue-800">
+                  Prevede se največ prvih <span className="font-bold">{TRANSLATION_MAX_PAGES} strani</span> vsakega
+                  dokumenta. Daljši dokumenti bodo v prevodu skrajšani.
+                </p>
+              </div>
+
               {translatable.length > 0 && (
                 <div className="mb-5">
                   <label className="flex items-center gap-2 mb-3 cursor-pointer">

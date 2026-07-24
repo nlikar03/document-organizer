@@ -74,3 +74,7 @@ export const generateDocCode = (folderId, folders) => {
   
   return codes.join('.');
 };
+
+// Translation is capped to this many pages per file on the backend; anything beyond
+// is cut off. Keep in sync with TRANSLATION_MAX_PAGES in backend.py.
+export const TRANSLATION_MAX_PAGES = 10;

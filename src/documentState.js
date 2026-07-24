@@ -58,9 +58,14 @@ export const useDocumentState = () => {
     const saved = localStorage.getItem('skippedAIClassification');
     return saved ? JSON.parse(saved) : false;
   });
-  // 'sequential' | 'hierarchical' | null — remembered so returning to step 5 with new
-  // files can re-number them without asking again.
+  // 'sequential' | 'hierarchical' | 'scoped' | null — remembered so returning to step 5
+  // with new files can re-number them without asking again.
   const [codeMethod, setCodeMethod] = useState(() => localStorage.getItem('codeMethod') || null);
+  // Which folders restart the counter for the 'scoped' method.
+  const [scopedCodeConfig, setScopedCodeConfig] = useState(() => {
+    const saved = localStorage.getItem('scopedCodeConfig');
+    return saved ? JSON.parse(saved) : { resetFolderIds: [], resetLevel: 0 };
+  });
 
   // ── localStorage wrappers ──────────────────────────────────────────────────
 
@@ -73,6 +78,11 @@ export const useDocumentState = () => {
     setCodeMethod(method);
     if (method) localStorage.setItem('codeMethod', method);
     else localStorage.removeItem('codeMethod');
+  };
+
+  const setScopedCodeConfigWithSave = (config) => {
+    setScopedCodeConfig(config);
+    localStorage.setItem('scopedCodeConfig', JSON.stringify(config));
   };
 
   const setFinalResultsWithSave = (results) => {
@@ -330,6 +340,57 @@ export const useDocumentState = () => {
     }
   };
 
+  // ── Method 3: sequence that restarts at chosen folders ────────────────────
+  //
+  // Files are numbered 001, 002, … but the counter restarts whenever the file
+  // belongs under a different "reset folder". Which folders reset the counter is
+  // the user's choice: either every folder at a given depth (resetLevel), or an
+  // explicit list of folder ids (resetFolderIds) for cases where one branch is
+  // split deeper than its siblings — e.g. INŠTALACIJE counted separately for
+  // STROJNE and ELEKTRO, while other top-level folders count as a whole.
+
+  // Longest configured reset folder that this file's folder sits under. Files
+  // outside every reset folder share one bucket keyed by their own top folder.
+  const findResetBucket = (folderId, resetFolderIds, resetLevel) => {
+    if (resetFolderIds && resetFolderIds.length > 0) {
+      const match = resetFolderIds
+        .filter(rid => folderId === rid || folderId.startsWith(rid + '.'))
+        .sort((a, b) => b.length - a.length)[0];
+      if (match) return match;
+    }
+    // No explicit match — fall back to the ancestor at resetLevel (0 = root folder).
+    return folderId.split('.').slice(0, (resetLevel ?? 0) + 1).join('.');
+  };
+
+  const generateDocumentCodesScoped = async (resetFolderIds = [], resetLevel = 0) => {
+    setIsGeneratingCodes(true);
+    try {
+      const allFiles = buildSortedFileList();
+      const bucketSeq = {};
+
+      const finalizedFiles = allFiles.map(file => {
+        const folderId = file.source === 'ai' ? file.suggestedFolder.id : file.folderId;
+        const bucket = findResetBucket(String(folderId ?? ''), resetFolderIds, resetLevel);
+        bucketSeq[bucket] = (bucketSeq[bucket] || 0) + 1;
+        const seq = bucketSeq[bucket];
+        const docCode = String(seq).padStart(3, '0');
+        return file.source === 'ai'
+          ? { ...file, fileNumber: seq, docCode, id: file.id || `ai_${file.fileName}_${Date.now()}` }
+          : { ...file, fileNumber: seq, docCode, isDirectUpload: true };
+      });
+
+      commitFinalizedFiles(finalizedFiles);
+      setCodeMethodWithSave('scoped');
+      setScopedCodeConfigWithSave({ resetFolderIds, resetLevel });
+      finalizeFileList(finalizedFiles);
+    } catch (error) {
+      console.error('Code generation error (scoped):', error);
+      alert('Napaka pri generiranju šifer po sklopih');
+    } finally {
+      setIsGeneratingCodes(false);
+    }
+  };
+
   // ── Finalize ───────────────────────────────────────────────────────────────
 
   // Finalizing right after code generation can't read finalResults/directUploads —
@@ -359,6 +420,12 @@ export const useDocumentState = () => {
   const regenerateCodes = () => {
     if (codeMethod === 'hierarchical') return generateDocumentCodesHierarchical();
     if (codeMethod === 'sequential') return generateDocumentCodes();
+    if (codeMethod === 'scoped') {
+      return generateDocumentCodesScoped(
+        scopedCodeConfig.resetFolderIds,
+        scopedCodeConfig.resetLevel
+      );
+    }
   };
 
   const hasUncodedFiles = [...finalResults, ...directUploads].some(f => !f.docCode);
@@ -528,7 +595,9 @@ export const useDocumentState = () => {
     removeFilesFromReview,
     generateDocumentCodes,
     generateDocumentCodesHierarchical,
+    generateDocumentCodesScoped,
     codeMethod,
+    scopedCodeConfig,
     regenerateCodes,
     hasUncodedFiles,
     foreignLanguageDocs,

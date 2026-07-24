@@ -189,5 +189,11 @@ export const translatePdf = async (file, sourceLanguage, password) => {
     const detail = await response.json().catch(() => ({}));
     throw new Error(detail.detail || 'Prevajanje ni uspelo');
   }
-  return response.blob();
+  const blob = await response.blob();
+  return {
+    blob,
+    originalPages: Number(response.headers.get('X-Original-Pages')) || null,
+    translatedPages: Number(response.headers.get('X-Translated-Pages')) || null,
+    truncated: response.headers.get('X-Truncated') === '1',
+  };
 };

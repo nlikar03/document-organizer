@@ -314,7 +314,11 @@ export const FolderTreeStep5 = ({
                       <p className="text-sm font-medium text-green-800 truncate">
                         Slovenski prevod
                       </p>
-                      
+                      {file.translationTruncated && (
+                        <p className="text-xs text-amber-700">
+                          ⚠ Skrajšano na {file.translationTruncated.translatedPages} od {file.translationTruncated.originalPages} strani
+                        </p>
+                      )}
                     </div>
                     {file.docCode && (
                       <span className="font-mono font-bold text-green-700 text-sm flex-shrink-0">

@@ -79,7 +79,9 @@ export default function DocumentOrganizer() {
     extractMetadataForSelectedFiles,
     generateDocumentCodes,
     generateDocumentCodesHierarchical,
+    generateDocumentCodesScoped,
     codeMethod,
+    scopedCodeConfig,
     regenerateCodes,
     hasUncodedFiles,
     foreignLanguageDocs,
@@ -130,6 +132,11 @@ export default function DocumentOrganizer() {
 
   // Code generation method picker
   const [showCodeMethodModal, setShowCodeMethodModal] = React.useState(false);
+  // Scoped-numbering setup: which folders restart the 001 counter.
+  const [showScopedCodeModal, setShowScopedCodeModal] = React.useState(false);
+  const [scopedMode, setScopedMode] = React.useState('level');   // 'level' | 'custom'
+  const [scopedLevel, setScopedLevel] = React.useState(0);
+  const [scopedFolderIds, setScopedFolderIds] = React.useState([]);
   const [showAITitles, setShowAITitles] = React.useState(false);
 
   // ZIP naming mode picker
@@ -198,43 +205,70 @@ export default function DocumentOrganizer() {
 
   // Step 2 file dragging
   const [isDragging, setIsDragging] = React.useState(false);
+  const [isDroppingFolder, setIsDroppingFolder] = React.useState(false);
 
   const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = () => setIsDragging(false);
+
+  // Auto-classification ignores folder structure, so a dropped folder is flattened
+  // into the files it contains, at any nesting depth.
+  const collectFilesFromEntry = (entry) => new Promise((resolve) => {
+    if (entry.isFile) {
+      entry.file(
+        (file) => resolve([file]),
+        () => resolve([])
+      );
+      return;
+    }
+
+    if (!entry.isDirectory) {
+      resolve([]);
+      return;
+    }
+
+    const reader = entry.createReader();
+    // readEntries returns at most ~100 entries per call, so keep reading until empty.
+    const readAllEntries = (accumulated) => {
+      reader.readEntries(async (batch) => {
+        if (batch.length === 0) {
+          const childFiles = await Promise.all(accumulated.map(collectFilesFromEntry));
+          resolve(childFiles.flat());
+        } else {
+          readAllEntries([...accumulated, ...batch]);
+        }
+      }, () => resolve([]));
+    };
+    readAllEntries([]);
+  });
+
   const handleDrop = async (e) => {
     e.preventDefault();
     setIsDragging(false);
 
     // dataTransfer.files lists a dropped folder as a zero-byte entry, so read the
-    // item entries instead and separate folders from files.
+    // item entries instead and walk any folders for their contents.
     const entries = Array.from(e.dataTransfer.items)
       .map(item => item.webkitGetAsEntry?.())
       .filter(Boolean);
 
-    const droppedFolders = entries.filter(entry => entry.isDirectory);
-    const droppedFiles = (await Promise.all(
-      entries
-        .filter(entry => entry.isFile)
-        .map(entry => new Promise(resolve => entry.file(resolve, () => resolve(null))))
-    )).filter(Boolean);
+    if (entries.length === 0) return;
+
+    setIsDroppingFolder(true);
+    const droppedFiles = (await Promise.all(entries.map(collectFilesFromEntry))).flat();
+    setIsDroppingFolder(false);
 
     const isSupported = (file) => file.type.startsWith('image/') || /\.pdf$/i.test(file.name);
     const accepted = droppedFiles.filter(isSupported);
     const rejected = droppedFiles.filter(file => !isSupported(file));
 
-    if (droppedFolders.length > 0 || rejected.length > 0) {
-      const reasons = [];
-      if (droppedFolders.length > 0) {
-        reasons.push(`Mape niso podprte (${droppedFolders.map(f => f.name).join(', ')}).`);
-      }
-      if (rejected.length > 0) {
-        reasons.push(`Nepodprti tipi datotek: ${rejected.map(f => f.name).join(', ')}.`);
-      }
-      reasons.push('Naložite lahko samo PDF, PNG, JPG in JPEG datoteke.');
-      if (accepted.length > 0) {
-        reasons.push(`Naloženih bo ${accepted.length} podprtih datotek.`);
-      }
-      alert(reasons.join('\n\n'));
+    if (rejected.length > 0) {
+      const preview = rejected.slice(0, 10).map(f => f.name).join(', ');
+      const more = rejected.length > 10 ? ` in še ${rejected.length - 10} drugih` : '';
+      alert([
+        `Nepodprti tipi datotek: ${preview}${more}.`,
+        'Naložite lahko samo PDF, PNG, JPG in JPEG datoteke.',
+        accepted.length > 0 ? `Naloženih bo ${accepted.length} podprtih datotek.` : '',
+      ].filter(Boolean).join('\n\n'));
     }
 
     if (accepted.length > 0) handleFileUpload({ target: { files: accepted } });
@@ -567,11 +601,15 @@ export default function DocumentOrganizer() {
                 />
                 <label htmlFor="file-upload" className="cursor-pointer">
                   <span className="text-indigo-600 font-semibold hover:text-indigo-700 text-lg">
-                    {isDragging ? 'Spustite datoteke tukaj' : 'Kliknite za nalaganje'}
+                    {isDroppingFolder
+                      ? 'Berem vsebino map...'
+                      : isDragging ? 'Spustite datoteke ali mape tukaj' : 'Kliknite za nalaganje'}
                   </span>
-                  {!isDragging && <span className="text-gray-600 text-lg"> ali povlecite datoteke</span>}
+                  {!isDragging && !isDroppingFolder && (
+                    <span className="text-gray-600 text-lg"> ali povlecite datoteke oz. mape</span>
+                  )}
                 </label>
-                <p className="text-sm text-gray-500 mt-3">PDF, PNG, JPG, JPEG</p>
+                <p className="text-sm text-gray-500 mt-3">PDF, PNG, JPG, JPEG — mape se samodejno razpakirajo</p>
               </div>
 
               {files.length > 0 && (
@@ -856,6 +894,7 @@ export default function DocumentOrganizer() {
                     removeFilesFromReview={removeFilesFromReview}
                     showAITitles={showAITitles}
                     onPreviewTranslation={previewTranslation}
+                    onEditFile={startFileEdit}
                   />
                 )}
               </div>
@@ -1067,6 +1106,32 @@ export default function DocumentOrganizer() {
                       </p>
                     </div>
                   </button>
+
+                  {/* Method 3 */}
+                  <button
+                    onClick={() => {
+                      setScopedMode(scopedCodeConfig?.resetFolderIds?.length > 0 ? 'custom' : 'level');
+                      setScopedLevel(scopedCodeConfig?.resetLevel ?? 0);
+                      setScopedFolderIds(scopedCodeConfig?.resetFolderIds ?? []);
+                      setShowCodeMethodModal(false);
+                      setShowScopedCodeModal(true);
+                    }}
+                    className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left group"
+                  >
+                    <div className="mt-0.5 w-8 h-8 rounded-full bg-emerald-100 group-hover:bg-emerald-200 flex items-center justify-center flex-shrink-0 font-bold text-emerald-600 text-sm transition-colors">
+                      3
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-800">Zaporedna šifra po sklopih</p>
+                      <p className="text-sm text-gray-500 mt-0.5">
+                        Kot zaporedna, a se števec <b>ponastavi</b> na izbranih mapah{' '}
+                        <span className="font-mono text-gray-700">001 … 060, nato spet 001</span>
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1">
+                        npr. GRADBENA DELA 001–060 &nbsp;·&nbsp; STROJNE INŠTALACIJE spet od 001
+                      </p>
+                    </div>
+                  </button>
                 </div>
 
                 <div className="mt-5 flex justify-end">
@@ -1075,6 +1140,115 @@ export default function DocumentOrganizer() {
                     className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
                   >
                     Prekliči
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Scoped numbering: pick where the counter restarts */}
+          {showScopedCodeModal && (
+            <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+                <div className="p-6 pb-4">
+                  <h3 className="text-lg font-bold text-gray-800 mb-1">Kje naj se števec ponastavi?</h3>
+                  <p className="text-sm text-gray-500">
+                    Dokumenti se štejejo <span className="font-mono">001, 002, 003 …</span> Števec se vrne na 001 vsakič, ko se začne nov sklop.
+                  </p>
+                </div>
+
+                <div className="px-6 flex flex-col gap-3">
+                  <label className="flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer transition-colors"
+                    style={{ borderColor: scopedMode === 'level' ? '#34d399' : '#e5e7eb' }}>
+                    <input
+                      type="radio"
+                      checked={scopedMode === 'level'}
+                      onChange={() => setScopedMode('level')}
+                      className="mt-1 w-4 h-4 accent-emerald-600"
+                    />
+                    <div>
+                      <p className="font-semibold text-gray-800 text-sm">Po nivoju map</p>
+                      <p className="text-xs text-gray-500 mt-0.5">Vsaka mapa na izbranem nivoju začne svoje štetje.</p>
+                      <div className="flex items-center gap-2 mt-2">
+                        <select
+                          value={scopedLevel}
+                          onChange={(e) => { setScopedLevel(Number(e.target.value)); setScopedMode('level'); }}
+                          className="border rounded-lg px-2 py-1 text-sm"
+                        >
+                          <option value={0}>1. nivo — glavne mape</option>
+                          <option value={1}>2. nivo — podmape</option>
+                          <option value={2}>3. nivo</option>
+                        </select>
+                      </div>
+                    </div>
+                  </label>
+
+                  <label className="flex items-start gap-3 p-3 border-2 rounded-lg cursor-pointer transition-colors"
+                    style={{ borderColor: scopedMode === 'custom' ? '#34d399' : '#e5e7eb' }}>
+                    <input
+                      type="radio"
+                      checked={scopedMode === 'custom'}
+                      onChange={() => setScopedMode('custom')}
+                      className="mt-1 w-4 h-4 accent-emerald-600"
+                    />
+                    <div>
+                      <p className="font-semibold text-gray-800 text-sm">Ročno izberi mape</p>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Označi mape, kjer naj se štetje začne znova. Uporabno, kadar je ena veja razdeljena globlje od ostalih
+                        (npr. INŠTALACIJE posebej za STROJNE in ELEKTRO).
+                      </p>
+                    </div>
+                  </label>
+                </div>
+
+                {scopedMode === 'custom' && (
+                  <div className="mx-6 mt-3 border rounded-lg overflow-y-auto flex-1 min-h-[120px]">
+                    {folders.map(folder => (
+                      <label
+                        key={folder.id}
+                        className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
+                        style={{ paddingLeft: `${12 + folder.level * 20}px` }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={scopedFolderIds.includes(folder.id)}
+                          onChange={(e) => setScopedFolderIds(prev =>
+                            e.target.checked ? [...prev, folder.id] : prev.filter(id => id !== folder.id)
+                          )}
+                          className="w-4 h-4 accent-emerald-600 flex-shrink-0"
+                        />
+                        <span className="text-sm text-gray-700 truncate">{folder.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+
+                {scopedMode === 'custom' && (
+                  <p className="px-6 pt-2 text-xs text-gray-400">
+                    Dokumenti v neoznačenih mapah se štejejo skupaj z najbližjo označeno nadrejeno mapo. Kar ni pod nobeno
+                    označeno mapo, se šteje po glavni mapi.
+                  </p>
+                )}
+
+                <div className="p-6 pt-4 flex justify-end gap-2">
+                  <button
+                    onClick={() => setShowScopedCodeModal(false)}
+                    className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    Prekliči
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowScopedCodeModal(false);
+                      generateDocumentCodesScoped(
+                        scopedMode === 'custom' ? scopedFolderIds : [],
+                        scopedMode === 'custom' ? 0 : scopedLevel
+                      );
+                    }}
+                    disabled={scopedMode === 'custom' && scopedFolderIds.length === 0}
+                    className="px-4 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium"
+                  >
+                    Generiraj šifre
                   </button>
                 </div>
               </div>
@@ -1109,6 +1283,7 @@ export default function DocumentOrganizer() {
                     removeFilesFromReview={removeFilesFromReview}
                     showAITitles={showAITitles}
                     onPreviewTranslation={previewTranslation}
+                    onEditFile={startFileEdit}
                   />
                 </div>
               </div>
