@@ -469,10 +469,10 @@ export const useDocumentState = () => {
     }
   };
 
-  const handleDownloadExcel = async (titleMode = 'combined', stripPrefix = false) => {
+  const handleDownloadExcel = async (titleMode = 'combined', stripPrefix = false, dzoData = null) => {
     setIsDownloadingExcel(true);
     try {
-      await downloadExcelClientSide([...finalResults, ...directUploads], folderState.folders, titleMode, stripPrefix);
+      await downloadExcelClientSide([...finalResults, ...directUploads], folderState.folders, titleMode, stripPrefix, dzoData);
     } catch (error) {
       console.error('Excel download failed:', error);
       alert(`Prenos Excel datoteke ni uspel: ${error.message}`);

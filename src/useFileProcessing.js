@@ -70,7 +70,11 @@ export const useFileProcessing = () => {
   // alreadyProcessed = names of files finalized in an earlier batch, so re-adding them
   // here would OCR and classify the same document twice.
   const handleFileUpload = (e, alreadyProcessed = []) => {
-    const newFiles = Array.from(e.target.files);
+    // "._name.pdf" (macOS AppleDouble) and friends carry a real extension but no real
+    // content, so the backend rejects them with a 400 — drop them before they queue.
+    const newFiles = Array.from(e.target.files).filter(
+      f => !(f.name.startsWith('._') || f.name === '.DS_Store' || f.name === 'Thumbs.db')
+    );
     const queued = new Set(files.map(f => f.name));
     const processed = new Set(alreadyProcessed);
 
@@ -120,6 +124,11 @@ export const useFileProcessing = () => {
   const readEntryRecursive = (entry, parentFolderId, parentLevel) => {
     return new Promise((resolve) => {
       if (entry.isFile) {
+        // Skip file-manager sidecars ("._name.pdf" etc.) — see handleFileUpload.
+        if (entry.name.startsWith('._') || entry.name === '.DS_Store' || entry.name === 'Thumbs.db') {
+          resolve({ newFolders: [], files: [] });
+          return;
+        }
         entry.file(
           (file) => resolve({ newFolders: [], files: [{ file, folderId: parentFolderId }] }),
           () => resolve({ newFolders: [], files: [] })

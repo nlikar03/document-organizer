@@ -6,6 +6,7 @@ import DocumentListView from './DocumentListView';
 import { TranslationModal } from './TranslationModal';
 import { FolderFilesModal, ResetConfirmModal, DeleteAllModal, OcrTextViewModal, FileEditModal, MetadataExtractionModal, MergedPDFWatermarkModal, MergedPDFResultModal, MergedPDFLoadingModal } from './Modals';
 import { defaultStructure } from './documentUtils';
+import { DzoDataModal, loadDzoData } from './DzoDataModal';
 
 
 export default function DocumentOrganizer() {
@@ -143,6 +144,9 @@ export default function DocumentOrganizer() {
   const [showZipNamingModal, setShowZipNamingModal] = React.useState(false);
   const [showExcelNamingModal, setShowExcelNamingModal] = React.useState(false);
   const [excelStripPrefix, setExcelStripPrefix] = React.useState(false);
+  // 5B DZO header: whether to include it, and the modal for editing its fields.
+  const [showDzoModal, setShowDzoModal] = React.useState(false);
+  const [includeDzoHeader, setIncludeDzoHeader] = React.useState(true);
 
   const openUploadModal = (folderId) => {
     setUploadModalFolderId(folderId);
@@ -210,10 +214,21 @@ export default function DocumentOrganizer() {
   const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
   const handleDragLeave = () => setIsDragging(false);
 
+  // Junk a file manager leaves behind. "._name.pdf" is a macOS AppleDouble sidecar:
+  // it carries the real file's extension but holds only metadata, so the backend
+  // rejects it on a magic-bytes check. Dropping a folder picks these up invisibly
+  // (Explorer hides them), so they are filtered out before anything is uploaded.
+  const isJunkFile = (name) =>
+    name.startsWith('._') || name === '.DS_Store' || name === 'Thumbs.db';
+
   // Auto-classification ignores folder structure, so a dropped folder is flattened
   // into the files it contains, at any nesting depth.
   const collectFilesFromEntry = (entry) => new Promise((resolve) => {
     if (entry.isFile) {
+      if (isJunkFile(entry.name)) {
+        resolve([]);
+        return;
+      }
       entry.file(
         (file) => resolve([file]),
         () => resolve([])
@@ -735,10 +750,31 @@ export default function DocumentOrganizer() {
           {/* Step 4: AI Processing */}
           {currentStep === 4 && (
             <div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-4 flex items-center gap-3">
-                <Brain className="text-purple-600" size={32} />
-                AI Kategorizacija
-              </h2>
+              <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
+                <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-3">
+                  <Brain className="text-purple-600" size={32} />
+                  AI Kategorizacija
+                </h2>
+                {/* Always-available escape hatches: if AI processing hangs or the page was
+                    reloaded mid-run, the user can still leave step 4 from here. */}
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    onClick={() => setCurrentStep(2)}
+                    className="px-4 py-2 rounded-lg border-2 border-gray-300 text-gray-700 hover:bg-gray-100 transition-colors font-medium text-sm flex items-center gap-2"
+                  >
+                    ← Nazaj na nalaganje
+                  </button>
+                  {finalResults.length > 0 && (
+                    <button
+                      onClick={moveToReviewPage}
+                      className="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors font-medium text-sm flex items-center gap-2"
+                    >
+                      <Eye size={16} />
+                      Na pregled ({finalResults.length}) →
+                    </button>
+                  )}
+                </div>
+              </div>
               <div className="bg-purple-50 border border-purple-200 rounded-lg p-6 mb-6">
                 <div className="flex items-center justify-between mb-3">
                   <span className="font-semibold text-purple-800">
@@ -883,6 +919,7 @@ export default function DocumentOrganizer() {
                     toggleFolder={toggleFolder}
                     startFileEdit={startFileEdit}
                     removeFileFromReview={removeFileFromReview}
+                    removeFilesFromReview={removeFilesFromReview}
                     showAITitles={showAITitles}
                     onPreviewTranslation={previewTranslation}
                   />
@@ -993,7 +1030,7 @@ export default function DocumentOrganizer() {
 
                 <div className="flex flex-col gap-3">
                   <button
-                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('combined', excelStripPrefix); }}
+                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('combined', excelStripPrefix, includeDzoHeader ? loadDzoData() : null); }}
                     className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left group"
                   >
                     <div className="mt-0.5 w-8 h-8 rounded-full bg-emerald-100 group-hover:bg-emerald-200 flex items-center justify-center flex-shrink-0 font-bold text-emerald-600 text-sm transition-colors">1</div>
@@ -1004,7 +1041,7 @@ export default function DocumentOrganizer() {
                   </button>
 
                   <button
-                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('split', excelStripPrefix); }}
+                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('split', excelStripPrefix, includeDzoHeader ? loadDzoData() : null); }}
                     className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left group"
                   >
                     <div className="mt-0.5 w-8 h-8 rounded-full bg-emerald-100 group-hover:bg-emerald-200 flex items-center justify-center flex-shrink-0 font-bold text-emerald-600 text-sm transition-colors">2</div>
@@ -1015,7 +1052,7 @@ export default function DocumentOrganizer() {
                   </button>
 
                   <button
-                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('original', excelStripPrefix); }}
+                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('original', excelStripPrefix, includeDzoHeader ? loadDzoData() : null); }}
                     className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left group"
                   >
                     <div className="mt-0.5 w-8 h-8 rounded-full bg-emerald-100 group-hover:bg-emerald-200 flex items-center justify-center flex-shrink-0 font-bold text-emerald-600 text-sm transition-colors">3</div>
@@ -1026,7 +1063,7 @@ export default function DocumentOrganizer() {
                   </button>
 
                   <button
-                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('ai', excelStripPrefix); }}
+                    onClick={() => { setShowExcelNamingModal(false); handleDownloadExcel('ai', excelStripPrefix, includeDzoHeader ? loadDzoData() : null); }}
                     className="flex items-start gap-4 p-4 border-2 border-gray-200 rounded-lg hover:border-emerald-400 hover:bg-emerald-50 transition-colors text-left group"
                   >
                     <div className="mt-0.5 w-8 h-8 rounded-full bg-emerald-100 group-hover:bg-emerald-200 flex items-center justify-center flex-shrink-0 font-bold text-emerald-600 text-sm transition-colors">4</div>
@@ -1055,9 +1092,32 @@ export default function DocumentOrganizer() {
                   />
                   <span className="text-sm text-gray-700">Odstrani zaporedno številko iz imena <span className="font-mono text-gray-500">001_, 002_, ...</span></span>
                 </label>
+
+                <div className="mt-3 flex items-center justify-between gap-3 border-t pt-4">
+                  <label className="flex items-center gap-3 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={includeDzoHeader}
+                      onChange={e => setIncludeDzoHeader(e.target.checked)}
+                      className="w-4 h-4 accent-emerald-600"
+                    />
+                    <span className="text-sm text-gray-700">Vključi celoten obrazec <span className="font-semibold">DZO</span> (vsi listi)</span>
+                  </label>
+                  <button
+                    onClick={() => setShowDzoModal(true)}
+                    className="text-sm text-indigo-600 hover:text-indigo-800 font-medium underline underline-offset-2"
+                  >
+                    Uredi podatke DZO
+                  </button>
+                </div>
               </div>
             </div>
           )}
+
+          <DzoDataModal
+            isOpen={showDzoModal}
+            onClose={() => setShowDzoModal(false)}
+          />
 
           {/* Code generation method picker modal */}
           {showCodeMethodModal && (

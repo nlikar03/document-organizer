@@ -193,6 +193,7 @@ export const FolderTreeStep5 = ({
   toggleFolder,
   startFileEdit,
   removeFileFromReview,
+  removeFilesFromReview,
   showAITitles,
   onPreviewTranslation,
 }) => {
@@ -227,15 +228,54 @@ export const FolderTreeStep5 = ({
     
     const totalFileCount = countFilesInFolderTree(folder.id, reviewFiles);
 
+    // Files in this folder only vs. including every subfolder — offered as two
+    // separate actions, since deleting a whole branch is easy to do by accident.
+    const idsHere = folderFiles.map(f => f.id || f.fileName);
+    const idsWithSubfolders = reviewFiles
+      .filter(file => {
+        const fid = file.suggestedFolder?.id || file.folderId;
+        return fid === folder.id || fid?.startsWith(folder.id + '.');
+      })
+      .map(f => f.id || f.fileName);
+
+    const confirmRemove = (ids, message) => {
+      if (ids.length === 0) return;
+      if (window.confirm(message)) removeFilesFromReview?.(ids);
+    };
+
+    const folderMenuItems = [];
+    if (idsHere.length > 0) {
+      folderMenuItems.push({
+        label: `Izbriši datoteke (${idsHere.length})`,
+        icon: <Trash2 size={14} />,
+        danger: true,
+        onClick: () => confirmRemove(
+          idsHere,
+          `Izbrišem ${idsHere.length} dokumentov iz mape "${folder.name}"?`
+        ),
+      });
+    }
+    if (idsWithSubfolders.length > idsHere.length) {
+      folderMenuItems.push({
+        label: `Izbriši s podmapami (${idsWithSubfolders.length})`,
+        icon: <Trash2 size={14} />,
+        danger: true,
+        onClick: () => confirmRemove(
+          idsWithSubfolders,
+          `Izbrišem ${idsWithSubfolders.length} dokumentov iz mape "${folder.name}" in vseh njenih podmap?`
+        ),
+      });
+    }
+
     return (
       <div key={folder.id} style={{ marginLeft: `${folder.level * 24}px` }}>
         <div className="flex items-center gap-2 py-2 px-3 hover:bg-indigo-50 rounded transition-colors group">
           <button onClick={() => toggleFolder(folder.id)} className="p-1 hover:bg-indigo-100 rounded">
-            {hasChildren || folderFiles.length > 0 
-              ? (folder.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />) 
+            {hasChildren || folderFiles.length > 0
+              ? (folder.expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />)
               : <div className="w-4" />}
           </button>
-          
+
           <span className="text-indigo-600">📁</span>
           <span className="text-sm font-medium text-gray-700">{folder.name}</span>
           {totalFileCount > 0 && (
@@ -243,6 +283,9 @@ export const FolderTreeStep5 = ({
               {totalFileCount}
             </span>
           )}
+          <div className="ml-auto">
+            {folderMenuItems.length > 0 && <ContextMenu items={folderMenuItems} />}
+          </div>
         </div>
         
         {folder.expanded && folderFiles.length > 0 && (

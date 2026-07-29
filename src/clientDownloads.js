@@ -5,6 +5,7 @@ import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { getFileFromIndexedDB } from './indexedDBHelper';
 import * as pdfjsLib from 'pdfjs-dist';
+import { dzoValuesByRow } from './dzoFields';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `${process.env.PUBLIC_URL}/pdf.worker.min.mjs`;
 
@@ -151,256 +152,191 @@ export const downloadZipClientSide = async (finalResults, folders, namingMode = 
   });
 };
 
+// ─── DZO EXCEL EXPORT (fills the official template, never regenerates) ─────────
+//
+// The official workbook DZO_i_obrazci.xlsm is bundled as a template in /public. We
+// load it with ExcelJS, which preserves everything — fonts (Arial Narrow), the
+// number format that hides empty "0" cells, formulas linking 5A/5B to VNOS PODATKOV,
+// merges, borders — then only inject data:
+//   • the DZO modal fields into VNOS PODATKOV column D (5A/5B pull them via formulas)
+//   • the classified documents into the dokazilo tables on sheet 5B
+// This guarantees a byte-faithful copy of the form, not a reconstruction.
 
+const DZO_TEMPLATE_URL = `${process.env.PUBLIC_URL || ''}/DZO_obrazec_template.xlsx`;
 
-// ─── BORDER HELPERS ───────────────────────────────────────────────────────────
- 
-const thinTop       = { top:    { style: 'thin'  } };
-const hairBottom    = { bottom: { style: 'hair'  } };
-const thinBottom    = { bottom: { style: 'thin'  } };
-const thickRight    = { right:  { style: 'thick' } };
-const thickLeft     = { left:   { style: 'thick' } };
-const thickLeftRight= { left:   { style: 'thick' }, right: { style: 'thick' } };
- 
-const mergeBorders = (...borders) => {
-  const result = {};
-  for (const b of borders) Object.assign(result, b);
-  return result;
-};
- 
-// ─── STYLE APPLIERS ──────────────────────────────────────────────────────────
- 
-const applyTitleRowStyle = (row) => {
-  // Col A: section number (e.g. "I.")
-  const a = row.getCell(1);
-  a.font = { bold: true, size: 10 };
-  a.alignment = { horizontal: 'left' };
-  a.border = mergeBorders(thinTop, hairBottom);
+// Fixed layout of the seven dokazilo sections on sheet "5B DZO" (from the template):
+// each section has 5 data rows starting at these row numbers, columns are
+// A=zap.št, B=ime dokazila, D=izdajatelj, F=št. dokazila, G=datum.
+const DZO_5B_SECTION_ROWS = [51, 60, 69, 78, 87, 96, 105];
+const DZO_5B_ROWS_PER_SECTION = 5;
 
-  // Cols B–F: section title (merged)
-  for (let c = 2; c <= 6; c++) {
-    const cell = row.getCell(c);
-    cell.font = { bold: true, size: 10 };
-    cell.alignment = { horizontal: 'left', wrapText: true };
-    cell.border = mergeBorders(thinTop, hairBottom);
-  }
-};
- 
-const applyDescRowStyle = (row) => {
-  // Col A: empty
-  row.getCell(1).border = thinBottom;
-  // Cols B–F: italic description (merged)
-  for (let c = 2; c <= 6; c++) {
-    const cell = row.getCell(c);
-    cell.font = { italic: true, size: 9 };
-    cell.alignment = { horizontal: 'left', vertical: 'top', wrapText: true };
-    cell.border = thinBottom;
-  }
-};
- 
-const applySubTitleRowStyle = (row) => {
-  // Indented child section title — slightly smaller, still bold
-  const a = row.getCell(1);
-  a.font = { bold: true, size: 9 };
-  a.alignment = { horizontal: 'left' };
-  a.border = mergeBorders(thinTop, hairBottom);
+// titleMode: 'combined' | 'original' | 'ai'  ('split' → 'combined')
+// dzoData:   header data from the DZO modal; null → empty fields (blank official form)
+export const downloadExcelClientSide = async (finalResults, folders, titleMode = 'combined', stripPrefix = false, dzoData = null) => {
+  // 1) Load the official template, preserving all its formatting and formulas.
+  const resp = await fetch(DZO_TEMPLATE_URL);
+  if (!resp.ok) throw new Error('Predloge DZO ni bilo mogoče naložiti.');
+  const templateBuffer = await resp.arrayBuffer();
 
-  for (let c = 2; c <= 6; c++) {
-    const cell = row.getCell(c);
-    cell.font = { bold: true, size: 9 };
-    cell.alignment = { horizontal: 'left', wrapText: true };
-    cell.border = mergeBorders(thinTop, hairBottom);
-  }
-};
- 
-const applyHeaderRowStyle = (row) => {
-  // Col A: "šifra" (zap. št.)
-  const a = row.getCell(1);
-  a.font = { size: 9 };
-  a.alignment = { vertical: 'top', wrapText: true };
-  a.border = mergeBorders(thinTop, hairBottom, thickRight);
-
-  // Col B: "ime dokazila + originalna datoteka" (combined, thick right)
-  row.getCell(2).font = { size: 9 };
-  row.getCell(2).alignment = { vertical: 'top', wrapText: true };
-  row.getCell(2).border = mergeBorders(thinTop, hairBottom, thickRight);
-
-  // Col C–D: "izdajatelj" (merged, thick right on D)
-  row.getCell(3).font = { size: 9 };
-  row.getCell(3).alignment = { vertical: 'top', wrapText: true };
-  row.getCell(3).border = mergeBorders(thinTop, hairBottom);
-  row.getCell(4).border = mergeBorders(thinTop, hairBottom, thickRight);
-
-  // Col E: "št. dokazila" (thick left+right)
-  row.getCell(5).font = { size: 9 };
-  row.getCell(5).alignment = { vertical: 'top', wrapText: false };
-  row.getCell(5).border = mergeBorders(thinTop, hairBottom, thickLeftRight);
-
-  // Col F: "datum"
-  row.getCell(6).font = { size: 9 };
-  row.getCell(6).alignment = { vertical: 'top', wrapText: false };
-  row.getCell(6).border = mergeBorders(thinTop, hairBottom);
-};
- 
-const DATA_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFCC' } };
- 
-const applyDataRowStyle = (row) => {
-  const a = row.getCell(1);
-  a.font = { bold: true, size: 9 };
-  a.alignment = { horizontal: 'left', vertical: 'center', wrapText: true };
-  a.fill = DATA_FILL;
-  a.border = mergeBorders(hairBottom, { top: { style: 'hair' } }, thickRight);
-
-  for (let c = 2; c <= 6; c++) {
-    const cell = row.getCell(c);
-    cell.font = { size: 9 };
-    cell.alignment = { horizontal: 'left', vertical: 'center', wrapText: true };
-    cell.fill = DATA_FILL;
-
-    let border = mergeBorders({ top: { style: 'hair' } }, hairBottom);
-    if (c === 2) border = mergeBorders(border, thickRight);  // B: title+file → thick right
-    if (c === 4) border = mergeBorders(border, thickRight);  // D: end of issuer merge → thick right
-    if (c === 5) border = mergeBorders(border, thickLeftRight); // E: št. dokazila
-    cell.border = border;
-  }
-};
-
-const buildTree = (folders) => {
-  const map = {};
-  const roots = [];
- 
-  folders.forEach(f => { map[f.id] = { ...f, children: [] }; });
- 
-  folders.forEach(f => {
-    const parts = f.id.split('.');
-    if (parts.length === 1) {
-      roots.push(map[f.id]);
-    } else {
-      const parentId = parts.slice(0, -1).join('.');
-      if (map[parentId]) map[parentId].children.push(map[f.id]);
-      else roots.push(map[f.id]); // orphan → treat as root
-    }
-  });
- 
-  return roots;
-};
- 
-// Roman numerals for top-level sections
-const ROMAN = ['I','II','III','IV','V','VI','VII','VIII','IX','X',
-               'XI','XII','XIII','XIV','XV','XVI','XVII','XVIII','XIX','XX'];
- 
-// ─── MAIN EXPORT ─────────────────────────────────────────────────────────────
- 
-// titleMode: 'combined' = AI + original skupaj (default)
-//            'split'    = AI v enem stolpcu, original v drugem
-//            'original' = samo originalno ime
-//            'ai'       = samo AI naslov
-export const downloadExcelClientSide = async (finalResults, folders, titleMode = 'combined', stripPrefix = false) => {
-  const strip = (name) => stripPrefix ? name.replace(/^\d{2,4}_/, '') : name;
   const workbook = new ExcelJS.Workbook();
-  const ws = workbook.addWorksheet('Seznam Dokumentov', {
-    pageSetup: { paperSize: 9, orientation: 'landscape' },
-  });
- 
-  const isSplit = titleMode === 'split';
-  if (isSplit) {
-    ws.columns = [
-      { width: 8  },  // A – šifra
-      { width: 35 },  // B – AI naslov
-      { width: 30 },  // C – originalna datoteka
-      { width: 22 },  // D – izdajatelj
-      { width: 14 },  // E – št. dokazila
-      { width: 12 },  // F – datum
-    ];
-  } else {
-    ws.columns = [
-      { width: 8  },  // A – šifra
-      { width: 55 },  // B – ime dokazila
-      { width: 22 },  // C – izdajatelj
-      { width: 16 },  // D – (continuation of C)
-      { width: 14 },  // E – št. dokazila
-      { width: 12 },  // F – datum
-    ];
+  await workbook.xlsx.load(templateBuffer);
+
+  // 2) Inject the modal data into VNOS PODATKOV column D. The 5A/5B sheets reference
+  //    these cells by formula, so the values flow through automatically.
+  const vnos = workbook.getWorksheet('VNOS PODATKOV');
+  if (vnos) {
+    const byRow = dzoValuesByRow(dzoData || {});
+    for (const [row, val] of Object.entries(byRow)) {
+      vnos.getCell(`D${row}`).value = val;
+    }
   }
- 
-  // ── index items by folderId for quick lookup
+
+  // 3) Fill the dokazilo tables on 5B from the classified documents.
+  const ws5b = workbook.getWorksheet('5B DZO');
+  if (ws5b) fillDokazila5B(ws5b, finalResults, folders, titleMode, stripPrefix);
+
+  // 4) Download. Keep the .xlsm extension so macros/format stay intact.
+  const buffer = await workbook.xlsx.writeBuffer();
+  saveAs(new Blob([buffer]), 'DZO_obrazci.xlsx');
+};
+
+// Writes classified documents into the seven dokazilo tables on 5B. Each top-level
+// folder maps to a section (I–VII) in order. Subfolders appear as bold subheadings
+// inside their section, with their own documents numbered from 1 underneath.
+//
+// The seven sections have a fixed 5-blank-row table in the template. We fill/extend
+// the rows for each section, working from the LAST section upward so that inserting
+// rows in an earlier section never shifts the anchor rows of the ones below it.
+const fillDokazila5B = (ws, finalResults, folders, titleMode, stripPrefix) => {
+  const strip = (name) => stripPrefix ? name.replace(/^\d{2,4}_/, '') : name;
+  const titleFor = (r) => {
+    const orig = strip((r.originalFileName || r.fileName || '').replace(/\.[^/.]+$/, ''));
+    if (titleMode === 'original') return orig;
+    if (titleMode === 'ai') return r.documentTitle || orig;
+    return r.documentTitle ? (orig ? `${r.documentTitle}\n${orig}` : r.documentTitle) : orig;
+  };
+  const MAX_CHARS_PER_LINE = 120;
+  const clamp = (text) =>
+    String(text || '')
+      .split('\n')
+      .map(line => line.length > MAX_CHARS_PER_LINE ? line.slice(0, MAX_CHARS_PER_LINE - 1) + '…' : line)
+      .join('\n');
+
+  // ── group documents by their exact folder id ────────────────────────────────
   const itemsByFolder = {};
   finalResults.forEach(r => {
     const id = getFolderId(r);
-    if (!itemsByFolder[id]) itemsByFolder[id] = [];
-    itemsByFolder[id].push(r);
+    (itemsByFolder[id] = itemsByFolder[id] || []).push(r);
   });
- 
-  // ── helper: add a section block (title + desc + headers + rows) to the sheet
-  const addSectionBlock = (node, romanLabel, depth) => {
-    const isTopLevel = depth === 0;
-    const titleRowNum = ws.lastRow ? ws.lastRow.number + 1 : 1;
- 
-    // ── TITLE ROW
-    const sectionLabel = romanLabel ? `${romanLabel}.` : '';
-    const titleRow = ws.addRow([sectionLabel, node.name, '', '', '', '']);
-    ws.mergeCells(titleRow.number, 2, titleRow.number, 6);
-    if (isTopLevel) applyTitleRowStyle(titleRow);
-    else applySubTitleRowStyle(titleRow);
- 
-    // ── DESCRIPTION ROW
-    const desc = node.description ||
-      'Tabelarični seznam posameznih dokazil z oštevilčenjem, kot si sledijo v prilogah.';
-    const descRow = ws.addRow(['', desc, '', '', '', '']);
-    ws.mergeCells(descRow.number, 2, descRow.number, 6);
-    applyDescRowStyle(descRow);
-    descRow.height = undefined; // auto
- 
-    // ── COLUMN HEADER ROW (only when there are direct items)
-    const directItems = itemsByFolder[node.id] || [];
-    if (directItems.length > 0) {
-      let headerRow;
-      if (isSplit) {
-        headerRow = ws.addRow(['šifra', 'AI naslov dokumenta', 'originalna datoteka', 'izdajatelj', 'št. dokazila', 'datum']);
-      } else {
-        headerRow = ws.addRow(['šifra', 'ime dokazila oz. \nna kaj se dokazilo nanaša / originalna datoteka', 'izdajatelj', '', 'št. dokazila', 'datum']);
-        ws.mergeCells(headerRow.number, 3, headerRow.number, 4);
-      }
-      applyHeaderRowStyle(headerRow);
-      headerRow.height = 66;
 
-      // ── DATA ROWS
-      directItems.forEach((r) => {
-        const origFile = strip((r.originalFileName || r.fileName || '').replace(/\.[^/.]+$/, ''));
-        let docRow;
-        if (isSplit) {
-          docRow = ws.addRow([r.docCode || '', r.documentTitle || '', origFile, r.issuer || '', r.documentNumber || '', r.date || '']);
-        } else {
-          let titleCell;
-          if (titleMode === 'original') {
-            titleCell = origFile;
-          } else if (titleMode === 'ai') {
-            titleCell = r.documentTitle || origFile;
-          } else {
-            // combined
-            titleCell = r.documentTitle ? (origFile ? `${r.documentTitle}\n${origFile}` : r.documentTitle) : origFile;
-          }
-          docRow = ws.addRow([r.docCode || '', titleCell, r.issuer || '', '', r.documentNumber || '', r.date || '']);
-          ws.mergeCells(docRow.number, 3, docRow.number, 4);
-        }
-        applyDataRowStyle(docRow);
-      });
+  const roots = folders.filter(f => !f.id.includes('.'));
+
+  // Subfolders of a root, in structural order, that actually contain documents.
+  const descendantsWithDocs = (rootId) =>
+    folders.filter(f =>
+      f.id !== rootId &&
+      f.id.startsWith(rootId + '.') &&
+      (itemsByFolder[f.id] || []).length > 0
+    );
+
+  // The subfolder code shown in column A (e.g. "0.1", "0.2") is the subfolder's
+  // position relative to its section root: "0." + its index among the root's
+  // direct subfolders that carry documents.
+  const subCode = (rootId, sub, siblingsWithDocs) =>
+    `0.${siblingsWithDocs.indexOf(sub) + 1}`;
+
+  // Build the ordered list of rows for a section, matching the official form. The
+  // template already provides one header row above the data block, so the FIRST group
+  // reuses it (no leading 'header' entry); every later group emits its own header.
+  //   • documents directly in the root: those docs (1..n)
+  //   • each subfolder: header, a subheading row (code + name), then docs from 1
+  const buildEntries = (root) => {
+    const entries = [];
+    let first = true;
+    const direct = itemsByFolder[root.id] || [];
+    if (direct.length > 0) {
+      first = false;
+      direct.forEach((doc, i) => entries.push({ type: 'doc', seq: i + 1, doc }));
     }
- 
-    // ── CHILD SECTIONS (recursive)
-    node.children.forEach(child => {
-      addSectionBlock(child, null, depth + 1);
+    const subs = descendantsWithDocs(root.id);
+    subs.forEach(sub => {
+      if (!first) entries.push({ type: 'header' });
+      first = false;
+      entries.push({ type: 'subheading', code: subCode(root.id, sub, subs), name: sub.name });
+      (itemsByFolder[sub.id] || []).forEach((doc, i) =>
+        entries.push({ type: 'doc', seq: i + 1, doc }));
     });
+    return entries;
   };
- 
-  // ── Build tree and render
-  const tree = buildTree(folders);
-  tree.forEach((rootNode, idx) => {
-    addSectionBlock(rootNode, ROMAN[idx] ?? String(idx + 1), 0);
-  });
- 
-  const buffer = await workbook.xlsx.writeBuffer();
-  saveAs(new Blob([buffer]), 'DZO_Dokumenti_Seznam.xlsx');
+
+  // Style snapshots captured from the template's section I block, so inserted rows
+  // keep the exact look: header row (50), data row (51), and a subheading row —
+  // same border skeleton as a data row but without the yellow fill or bold.
+  const headerStyles = [1, 2, 3, 4, 5, 6, 7].map(c => ({ ...ws.getRow(50).getCell(c).style }));
+  const dataStyles = [1, 2, 3, 4, 5, 6, 7].map(c => ({ ...ws.getRow(51).getCell(c).style }));
+  const subheadingStyles = dataStyles.map(s => ({ ...s, fill: undefined, font: { name: 'Arial Narrow', size: 9 } }));
+
+  // Header row cell contents, mirroring the template header (row 50).
+  const HEADER_TEXTS = ['zap. \nšt.', 'ime dokazila oz. \nna kaj se dokazilo nanaša', '', 'izdajatelj', '', 'št. dokazila', 'datum'];
+
+  const applyRow = (rowNum, styles, height) => {
+    const row = ws.getRow(rowNum);
+    if (height) row.height = height;
+    for (let c = 1; c <= 7; c++) row.getCell(c).style = { ...styles[c - 1] };
+    return row;
+  };
+
+  // Fill sections bottom-up so inserting rows never shifts sections below.
+  for (let idx = roots.length - 1; idx >= 0; idx--) {
+    if (idx >= DZO_5B_SECTION_ROWS.length) continue;
+    const entries = buildEntries(roots[idx]);
+    if (entries.length === 0) continue;
+
+    // Entries start at the template's first blank data row; its header row just above
+    // stays and serves the first group. Insert any rows beyond the template's 5.
+    const blockStart = DZO_5B_SECTION_ROWS[idx];
+    const have = DZO_5B_ROWS_PER_SECTION;
+    if (entries.length > have) {
+      ws.spliceRows(blockStart + have, 0, ...Array.from({ length: entries.length - have }, () => []));
+    }
+
+    entries.forEach((entry, i) => {
+      const r = blockStart + i;
+      if (entry.type === 'header') {
+        applyRow(r, headerStyles, 27.75);
+        HEADER_TEXTS.forEach((t, c) => { ws.getCell(r, c + 1).value = t; });
+      } else if (entry.type === 'subheading') {
+        applyRow(r, subheadingStyles, 15);
+        ws.getCell(`A${r}`).value = entry.code;
+        ws.getCell(`B${r}`).value = entry.name;
+      } else {
+        const name = clamp(titleFor(entry.doc));
+        applyRow(r, dataStyles, dokaziloRowHeight(name, entry.doc.issuer || ''));
+        ws.getCell(`A${r}`).value = entry.seq;
+        ws.getCell(`B${r}`).value = name;
+        ws.getCell(`D${r}`).value = entry.doc.issuer || '';
+        ws.getCell(`F${r}`).value = entry.doc.documentNumber || '';
+        ws.getCell(`G${r}`).value = entry.doc.date || '';
+      }
+    });
+  }
+};
+
+// Estimate the row height (points) needed for the two wrapping columns of a 5B data
+// row, so long names/issuers are not clipped. Arial Narrow 9pt in a ~22.5-wide column
+// fits roughly 30 characters per line; each line is ~12pt. Newlines are honoured.
+const dokaziloRowHeight = (name, issuer) => {
+  const CHARS_PER_LINE = 30;
+  const LINE_PT = 12;
+  const MIN_HEIGHT = 15;
+
+  const linesFor = (text) =>
+    String(text || '')
+      .split('\n')
+      .reduce((sum, part) => sum + Math.max(1, Math.ceil(part.length / CHARS_PER_LINE)), 0);
+
+  const lines = Math.max(linesFor(name), linesFor(issuer), 1);
+  return Math.max(MIN_HEIGHT, lines * LINE_PT);
 };
 
 // ─── MERGED PDF ────────────────────────────────────────────────────────────────
