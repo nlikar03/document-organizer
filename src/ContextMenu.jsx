@@ -31,12 +31,14 @@ export const ContextMenu = ({ items }) => {
           {items.map((item, i) => (
             <button
               key={i}
+              disabled={item.disabled}
               onClick={() => {
                 item.onClick();
                 if (!item.keepOpen) setOpen(false);
               }}
-              className={`w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 flex items-center gap-2
-                ${item.danger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700'}`}
+              className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2
+                disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent
+                ${item.danger ? 'text-red-600 hover:bg-red-50' : 'text-gray-700 hover:bg-indigo-50'}`}
             >
               {item.icon}
               {item.label}

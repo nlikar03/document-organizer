@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Trash2, FileText, ArrowUpDown, Eye, Edit2 } from 'lucide-react';
+import { Trash2, FileText, ArrowUpDown, Eye, Edit2, Upload } from 'lucide-react';
 
 const formatDateTime = (iso) => {
   if (!iso) return '—';
@@ -14,7 +14,7 @@ const formatDateTime = (iso) => {
 const formatSize = (bytes) =>
   typeof bytes === 'number' ? `${(bytes / 1024).toFixed(1)} KB` : '—';
 
-const DocumentListView = ({ folders, finalResults, directUploads, removeFilesFromReview, showAITitles, onPreviewTranslation, onEditFile }) => {
+const DocumentListView = ({ folders, finalResults, directUploads, removeFilesFromReview, showAITitles, onPreviewTranslation, onAttachTranslation, onEditFile }) => {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [anchorIndex, setAnchorIndex] = useState(null);
   const [sortBy, setSortBy] = useState('processedAt');
@@ -225,6 +225,26 @@ const DocumentListView = ({ folders, finalResults, directUploads, removeFilesFro
                         <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-[10px] font-semibold uppercase">
                           {row.language}
                         </span>
+                      )}
+                      {row.language && row.language !== 'sl' && !row.translatedFileName && onAttachTranslation && (
+                        <label
+                          onClick={(e) => e.stopPropagation()}
+                          className="flex items-center gap-1 px-1.5 py-0.5 bg-white border border-amber-300 text-amber-800 hover:bg-amber-100 rounded text-[10px] font-semibold cursor-pointer transition-colors"
+                          title="Naloži slovenski prevod (PDF)"
+                        >
+                          <Upload size={11} />
+                          prevod
+                          <input
+                            type="file"
+                            accept="application/pdf,.pdf"
+                            className="hidden"
+                            onChange={(e) => {
+                              const pdf = e.target.files?.[0];
+                              e.target.value = '';
+                              if (pdf) onAttachTranslation(row.id || row.fileName, pdf);
+                            }}
+                          />
+                        </label>
                       )}
                       {row.translatedFileName && (
                         <button

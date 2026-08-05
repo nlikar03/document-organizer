@@ -231,6 +231,16 @@ const fillDokazila5B = (ws, finalResults, folders, titleMode, stripPrefix) => {
 
   const roots = folders.filter(f => !f.id.includes('.'));
 
+  // Map a root folder to its fixed section index (I→0 … VII→6) by the roman numeral
+  // in its name. This is what decides which of the seven official tables a folder's
+  // documents go into — NOT the folder's position in the list. Roots without a roman
+  // numeral (e.g. "0 PODATKI O POGODBI") don't belong to any dokazilo table.
+  const ROMAN_TO_INDEX = { I: 0, II: 1, III: 2, IV: 3, V: 4, VI: 5, VII: 6 };
+  const sectionIndexOf = (folder) => {
+    const m = folder.name.match(/^\s*([IVX]+)\.?\s/);
+    return m && ROMAN_TO_INDEX[m[1]] !== undefined ? ROMAN_TO_INDEX[m[1]] : null;
+  };
+
   // Subfolders of a root, in structural order, that actually contain documents.
   const descendantsWithDocs = (rootId) =>
     folders.filter(f =>
@@ -239,11 +249,12 @@ const fillDokazila5B = (ws, finalResults, folders, titleMode, stripPrefix) => {
       (itemsByFolder[f.id] || []).length > 0
     );
 
-  // The subfolder code shown in column A (e.g. "0.1", "0.2") is the subfolder's
-  // position relative to its section root: "0." + its index among the root's
-  // direct subfolders that carry documents.
-  const subCode = (rootId, sub, siblingsWithDocs) =>
-    `0.${siblingsWithDocs.indexOf(sub) + 1}`;
+  // The subfolder code shown in column A. Prefer the leading number in the folder
+  // name (e.g. "01 BETONSKA DELA" → "01"); fall back to its position otherwise.
+  const subCode = (sub, siblingsWithDocs) => {
+    const m = sub.name.match(/^\s*(\d+)/);
+    return m ? m[1] : String(siblingsWithDocs.indexOf(sub) + 1);
+  };
 
   // Build the ordered list of rows for a section, matching the official form. The
   // template already provides one header row above the data block, so the FIRST group
@@ -262,7 +273,9 @@ const fillDokazila5B = (ws, finalResults, folders, titleMode, stripPrefix) => {
     subs.forEach(sub => {
       if (!first) entries.push({ type: 'header' });
       first = false;
-      entries.push({ type: 'subheading', code: subCode(root.id, sub, subs), name: sub.name });
+      // Show the name without its leading number (the number goes in column A).
+      const label = sub.name.replace(/^\s*\d+\s+/, '');
+      entries.push({ type: 'subheading', code: subCode(sub, subs), name: label });
       (itemsByFolder[sub.id] || []).forEach((doc, i) =>
         entries.push({ type: 'doc', seq: i + 1, doc }));
     });
@@ -286,18 +299,48 @@ const fillDokazila5B = (ws, finalResults, folders, titleMode, stripPrefix) => {
     return row;
   };
 
-  // Fill sections bottom-up so inserting rows never shifts sections below.
-  for (let idx = roots.length - 1; idx >= 0; idx--) {
-    if (idx >= DZO_5B_SECTION_ROWS.length) continue;
-    const entries = buildEntries(roots[idx]);
+  // Snapshot every merge in the dokazila region (rows ≥ section I) BEFORE editing,
+  // together with which section each belongs to. ExcelJS's spliceRows moves cell
+  // content but NOT merged ranges, so we drop them all now and re-apply them at the
+  // shifted positions afterwards. This keeps section VII's special "E:G" merges too,
+  // so no title/description/header text ever spills.
+  const regionStart = DZO_5B_SECTION_ROWS[0];
+  const originalMerges = [...ws.model.merges]
+    .map(range => {
+      const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(range);
+      if (!m) return null;
+      return { range, col1: m[1], row: Number(m[2]), col2: m[3], row2: Number(m[4]) };
+    })
+    .filter(x => x && x.row >= regionStart);
+
+  // Record every row insertion as { at, count }: `count` blank rows were inserted just
+  // before row `at`. A cell/merge originally at row R ends up at R + (sum of counts of
+  // all insertions whose `at` ≤ R). Insertions happen bottom-up so `at` refers to the
+  // pre-insertion row number of later insertions correctly (earlier sections are still
+  // at their template rows when their insert runs).
+  const insertions = [];
+
+  // Pair each root with its target section index, keep only those that map to a
+  // section, and fill them bottom-up (by section row) so inserting rows never
+  // shifts the sections below during the fill.
+  const sectionsToFill = roots
+    .map(root => ({ root, section: sectionIndexOf(root) }))
+    .filter(x => x.section !== null)
+    .sort((a, b) => b.section - a.section); // highest section first
+
+  for (const { root, section } of sectionsToFill) {
+    const entries = buildEntries(root);
     if (entries.length === 0) continue;
 
     // Entries start at the template's first blank data row; its header row just above
     // stays and serves the first group. Insert any rows beyond the template's 5.
-    const blockStart = DZO_5B_SECTION_ROWS[idx];
+    const blockStart = DZO_5B_SECTION_ROWS[section];
     const have = DZO_5B_ROWS_PER_SECTION;
     if (entries.length > have) {
-      ws.spliceRows(blockStart + have, 0, ...Array.from({ length: entries.length - have }, () => []));
+      const inserted = entries.length - have;
+      const at = blockStart + have;   // blank rows inserted just before this row
+      ws.spliceRows(at, 0, ...Array.from({ length: inserted }, () => []));
+      insertions.push({ at, count: inserted });
     }
 
     entries.forEach((entry, i) => {
@@ -319,6 +362,23 @@ const fillDokazila5B = (ws, finalResults, folders, titleMode, stripPrefix) => {
         ws.getCell(`G${r}`).value = entry.doc.date || '';
       }
     });
+  }
+
+  // ── Re-apply the original merges at their shifted rows ──────────────────────
+  // A merge originally at row R moves down by the total rows inserted at positions
+  // ≤ R. This is exact — no per-section guessing — so a section's title/description
+  // (which sit ABOVE that section's own insertion point) only shift for insertions in
+  // earlier sections, while rows below an insertion shift correctly.
+  const shiftForRow = (row) =>
+    insertions.reduce((sum, ins) => sum + (ins.at <= row ? ins.count : 0), 0);
+
+  // Drop every region merge, then recreate each at row + its shift.
+  for (const { range } of originalMerges) {
+    try { ws.unMergeCells(range); } catch { /* already gone */ }
+  }
+  for (const { col1, row, col2, row2 } of originalMerges) {
+    const shift = shiftForRow(row);
+    try { ws.mergeCells(`${col1}${row + shift}:${col2}${row2 + shift}`); } catch { /* overlaps — skip */ }
   }
 };
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, Loader2, Scan, Brain, Download, Eye, Save, FolderOpen, FolderPlus, ArrowUpDown, List, Languages } from 'lucide-react';
+import { Upload, FolderTree, FileText, CheckCircle, Plus, Trash2, Loader2, Scan, Brain, Download, Eye, Save, FolderOpen, FolderPlus, ArrowUpDown, ArrowDownAZ, Undo2, List, Languages } from 'lucide-react';
 import { useDocumentState } from './documentState';
 import { FolderTreeStep1, FolderTreeStep5, UploadModal } from './FolderTreeView';
 import DocumentListView from './DocumentListView';
@@ -57,6 +57,7 @@ export default function DocumentOrganizer() {
     handleFileUpload,
     removeFile,
     removeAllFiles,
+    pendingTranslations,
     handlePasswordSubmit,
     startOCRProcessing,
     startAIProcessing,
@@ -67,8 +68,12 @@ export default function DocumentOrganizer() {
     resetAll,
     handleDirectUploadToFolder,
     handleFolderDrop,
-    removeDirectUpload,
     removeAllDirectUploads,
+    moveReviewFileUp,
+    moveReviewFileDown,
+    sortReviewFilesAlphabetically,
+    undoSortReviewFiles,
+    canUndoReviewSort,
     moveToReviewPage,
     startFileEdit,
     saveFileEdit,
@@ -91,6 +96,8 @@ export default function DocumentOrganizer() {
     showTranslationModal,
     setShowTranslationModal,
     translateDocuments,
+    attachManualTranslation,
+    removeTranslation,
     previewTranslation,
     exportFolderStructure,
     importFolderStructure,
@@ -314,6 +321,14 @@ export default function DocumentOrganizer() {
 
   const hasDownloads = isFinalized && totalFilesForBanner > 0;
 
+  // Step 1 lists manual uploads and AI-classified files together, so its file
+  // count (and the actions gated on it) must span both sources.
+  const step1FileCount = (() => {
+    const keys = new Set(finalResults.map(f => f.id || f.fileName));
+    directUploads.forEach(f => keys.add(f.id || f.fileName));
+    return keys.size;
+  })();
+
   const metadataExtractionFiles = (() => {
     const combined = new Map();
     finalResults.forEach(file => combined.set(file.id || file.fileName, file));
@@ -430,9 +445,11 @@ export default function DocumentOrganizer() {
               <div className="mb-6">
                 <div className="mb-3">
                   <h2 className="text-2xl font-bold text-gray-800">Definiraj Strukturo Map</h2>
-                  {directUploads.length > 0 && (
+                  {step1FileCount > 0 && (
                     <p className="text-sm text-gray-500 mt-1">
-                      {directUploads.length} dokumentov naloženih direktno v mape
+                      {step1FileCount} dokumentov v mapah
+                      {directUploads.length > 0 && finalResults.length > 0 &&
+                        ` (${finalResults.length} AI klasificiranih, ${step1FileCount - finalResults.length} ročno naloženih)`}
                     </p>
                   )}
                 </div>
@@ -465,6 +482,26 @@ export default function DocumentOrganizer() {
                       >
                         <ArrowUpDown size={15} />
                         Razvrsti po številki
+                      </button>
+                    )}
+                    {step1FileCount > 0 && (
+                      <button
+                        onClick={sortReviewFilesAlphabetically}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 text-gray-700 text-sm rounded-md hover:bg-gray-50 transition-colors font-medium whitespace-nowrap"
+                        title="Razvrsti datoteke po abecedi znotraj vsake mape"
+                      >
+                        <ArrowDownAZ size={15} />
+                        Razvrsti datoteke po abecedi
+                      </button>
+                    )}
+                    {canUndoReviewSort && (
+                      <button
+                        onClick={undoSortReviewFiles}
+                        className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-300 text-amber-800 text-sm rounded-md hover:bg-amber-100 transition-colors font-medium whitespace-nowrap"
+                        title="Povrni vrstni red datotek pred zadnjim razvrščanjem"
+                      >
+                        <Undo2 size={15} />
+                        Razveljavi razvrščanje
                       </button>
                     )}
                     <button
@@ -534,7 +571,10 @@ export default function DocumentOrganizer() {
                     moveFolderDown={moveFolderDown}
                     openUploadModal={openUploadModal}
                     openFolderFiles={openFolderFiles}
-                    removeDirectUpload={removeDirectUpload}
+                    finalResults={finalResults}
+                    removeFile={removeFileFromReview}
+                    moveReviewFileUp={moveReviewFileUp}
+                    moveReviewFileDown={moveReviewFileDown}
                     handleDirectUploadToFolder={handleDirectUploadToFolder}
                     handleFolderDrop={handleFolderDrop}
                   />
@@ -625,10 +665,14 @@ export default function DocumentOrganizer() {
                   )}
                 </label>
                 <p className="text-sm text-gray-500 mt-3">PDF, PNG, JPG, JPEG — mape se samodejno razpakirajo</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Prevod naloži z istim imenom in pripono <span className="font-mono">-sl</span> ali <span className="font-mono">-slo</span>
+                  {' '}(npr. <span className="font-mono">pogodba.pdf</span> + <span className="font-mono">pogodba-sl.pdf</span>) — samodejno se poveže z originalom.
+                </p>
               </div>
 
               {files.length > 0 && (
-                <div className="mt-4 mb-4 flex items-center justify-center gap-6 text-sm">
+                <div className="mt-4 mb-4 flex items-center justify-center gap-6 text-sm flex-wrap">
                   <div className="flex items-center gap-2">
                     <span className="font-semibold text-gray-700">Število datotek:</span>
                     <span className="font-bold text-indigo-600">{files.length}</span>
@@ -640,6 +684,17 @@ export default function DocumentOrganizer() {
                       {(files.reduce((sum, f) => sum + f.size, 0) / 1024 / 1024).toFixed(1)} MB
                     </span>
                   </div>
+                  {pendingTranslations && Object.keys(pendingTranslations).length > 0 && (
+                    <>
+                      <div className="h-4 w-px bg-gray-300"></div>
+                      <div className="flex items-center gap-2 px-2 py-1 bg-green-50 border border-green-200 rounded">
+                        <Languages size={14} className="text-green-600" />
+                        <span className="font-semibold text-green-700">
+                          Prepoznanih prevodov: {Object.keys(pendingTranslations).length}
+                        </span>
+                      </div>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -922,6 +977,9 @@ export default function DocumentOrganizer() {
                     removeFilesFromReview={removeFilesFromReview}
                     showAITitles={showAITitles}
                     onPreviewTranslation={previewTranslation}
+                    onAttachTranslation={attachManualTranslation}
+                    onRemoveTranslation={removeTranslation}
+                    onAiTranslate={translateDocuments}
                   />
                 ) : (
                   <DocumentListView
@@ -931,6 +989,7 @@ export default function DocumentOrganizer() {
                     removeFilesFromReview={removeFilesFromReview}
                     showAITitles={showAITitles}
                     onPreviewTranslation={previewTranslation}
+                    onAttachTranslation={attachManualTranslation}
                     onEditFile={startFileEdit}
                   />
                 )}
@@ -1436,6 +1495,7 @@ export default function DocumentOrganizer() {
             isTranslating={isTranslating}
             progress={translationProgress}
             onTranslate={translateDocuments}
+            onAttachTranslation={attachManualTranslation}
           />
         </div>
 

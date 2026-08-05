@@ -78,3 +78,19 @@ export const generateDocCode = (folderId, folders) => {
 // Translation is capped to this many pages per file on the backend; anything beyond
 // is cut off. Keep in sync with TRANSLATION_MAX_PAGES in backend.py.
 export const TRANSLATION_MAX_PAGES = 10;
+
+// Manual reordering and alphabetical sorting stamp files with an explicit
+// `sortIndex`. A folder's files are split across finalResults and directUploads,
+// so array position alone can't express their combined order — sortIndex can.
+// Files without one keep their original relative position, after those with one.
+export const sortByExplicitIndex = (items, getFile = (x) => x) =>
+  items
+    .map((item, i) => ({ item, i, idx: getFile(item)?.sortIndex }))
+    .sort((a, b) => {
+      const aHas = typeof a.idx === 'number';
+      const bHas = typeof b.idx === 'number';
+      if (aHas && bHas && a.idx !== b.idx) return a.idx - b.idx;
+      if (aHas !== bHas) return aHas ? -1 : 1;
+      return a.i - b.i;   // stable fallback
+    })
+    .map(({ item }) => item);

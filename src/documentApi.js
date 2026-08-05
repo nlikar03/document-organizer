@@ -54,7 +54,7 @@ export const processAI = async (ocrResults, folders, password, onProgress, onLog
   const results = [];
   const logs = [];
 
-  logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: 'AI proces začet (GPT-5-mini) - paralelno procesiranje...' });
+  logs.push({ time: new Date().toLocaleTimeString('sl-SI'), message: 'AI proces začet (GPT-5.6-luna) - paralelno procesiranje...' });
   onLog(logs);
 
   const BATCH_SIZE = 5;

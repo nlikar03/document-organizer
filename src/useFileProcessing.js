@@ -5,6 +5,18 @@ import { TRANSLATION_MAX_PAGES } from './documentUtils';
 
 export const useFileProcessing = () => {
   const [files, setFiles] = useState([]);
+  // Translations dropped in at upload time, keyed by the ORIGINAL document's file name
+  // (e.g. "pogodba.pdf" -> "pogodba-sl.pdf"). Held aside so they don't go through
+  // OCR/AI as their own document; auto-attached to their original after classification.
+  // Persisted so the pairing survives a reload between step 2 and step 5.
+  const [pendingTranslations, setPendingTranslations] = useState(() => {
+    const saved = localStorage.getItem('pendingTranslations');
+    return saved ? JSON.parse(saved) : {};
+  });
+  const savePendingTranslations = (next) => {
+    setPendingTranslations(next);
+    localStorage.setItem('pendingTranslations', JSON.stringify(next));
+  };
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrProcessing, setOcrProcessing] = useState(false);
   const [ocrResults, setOcrResults] = useState(() => {
@@ -67,6 +79,21 @@ export const useFileProcessing = () => {
 
   // ── File input ─────────────────────────────────────────────────────────────
 
+  // Strip the extension: "pogodba.pdf" -> { base: "pogodba", ext: ".pdf" }.
+  const splitExt = (name) => {
+    const dot = name.lastIndexOf('.');
+    return dot === -1 ? { base: name, ext: '' } : { base: name.slice(0, dot), ext: name.slice(dot) };
+  };
+
+  // A file whose base name ends in "-sl" or "-slo" (case-insensitive) is treated as the
+  // Slovenian translation of the same-named original. Returns the original's base name
+  // (e.g. "pogodba-sl" -> "pogodba") or null if it isn't a translation.
+  const translationBaseName = (fileName) => {
+    const { base } = splitExt(fileName);
+    const m = base.match(/^(.*?)[-_](sl|slo)$/i);
+    return m && m[1] ? m[1] : null;
+  };
+
   // alreadyProcessed = names of files finalized in an earlier batch, so re-adding them
   // here would OCR and classify the same document twice.
   const handleFileUpload = (e, alreadyProcessed = []) => {
@@ -75,15 +102,43 @@ export const useFileProcessing = () => {
     const newFiles = Array.from(e.target.files).filter(
       f => !(f.name.startsWith('._') || f.name === '.DS_Store' || f.name === 'Thumbs.db')
     );
+
+    // Base names of every original that could be a translation's partner: files already
+    // queued, plus the non-translation files in this batch.
+    const originalBases = new Set(files.map(f => splitExt(f.name).base));
+    newFiles.forEach(f => { if (!translationBaseName(f.name)) originalBases.add(splitExt(f.name).base); });
+
     const queued = new Set(files.map(f => f.name));
     const processed = new Set(alreadyProcessed);
 
     const duplicates = [];
     const accepted = [];
+    const pairedTranslations = [];   // { file, originalBase }
+    const orphanTranslations = [];   // translations with no matching original → treat as normal docs
+
     newFiles.forEach(file => {
-      if (queued.has(file.name) || processed.has(file.name)) duplicates.push(file.name);
-      else accepted.push(file);
+      if (queued.has(file.name) || processed.has(file.name)) { duplicates.push(file.name); return; }
+      const transBase = translationBaseName(file.name);
+      if (transBase && originalBases.has(transBase)) {
+        pairedTranslations.push({ file, originalBase: transBase });
+      } else if (transBase) {
+        orphanTranslations.push(file);   // no partner — classify it like any other document
+        accepted.push(file);
+      } else {
+        accepted.push(file);
+      }
     });
+
+    // Hold paired translations aside: store the blob and remember which original they
+    // belong to. They do NOT enter the OCR/AI queue.
+    if (pairedTranslations.length > 0) {
+      const next = { ...pendingTranslations };
+      pairedTranslations.forEach(({ file, originalBase }) => {
+        saveFileToIndexedDB(file.name, file);       // fire-and-forget; needed later for attach
+        next[originalBase] = file.name;
+      });
+      savePendingTranslations(next);
+    }
 
     if (duplicates.length > 0) {
       alert(
@@ -94,7 +149,7 @@ export const useFileProcessing = () => {
   };
 
   const removeFile = (idx) => setFiles(files.filter((_, i) => i !== idx));
-  const removeAllFiles = () => setFiles([]);
+  const removeAllFiles = () => { setFiles([]); savePendingTranslations({}); };
 
   // ── Direct folder uploads ──────────────────────────────────────────────────
 
@@ -255,6 +310,29 @@ export const useFileProcessing = () => {
       setAiLogs,
       (newResults) => setFinalResultsWithSave(prev => [...prev, ...newResults])
     );
+
+    // Auto-attach translations that were dropped in at upload time (step 2). Each
+    // pending translation is keyed by its original's base name; match it to the freshly
+    // classified document and set translatedFileName so it exports with the -P code.
+    if (Object.keys(pendingTranslations).length > 0) {
+      const attached = new Set();
+      const applyPending = (file) => {
+        if (file.translatedFileName) return file;
+        const base = splitExt(file.fileName).base;
+        const translatedName = pendingTranslations[base];
+        if (!translatedName) return file;
+        attached.add(base);
+        return { ...file, translatedFileName: translatedName, translationTruncated: null, manualTranslation: true };
+      };
+      setFinalResultsWithSave(prev => prev.map(applyPending));
+      // Drop the ones we managed to attach; keep any still-unmatched for later.
+      if (attached.size > 0) {
+        const remaining = { ...pendingTranslations };
+        attached.forEach(b => delete remaining[b]);
+        savePendingTranslations(remaining);
+      }
+    }
+
     setAiProcessing(false);
   };
 
@@ -396,6 +474,53 @@ export const useFileProcessing = () => {
     }
   };
 
+  // Attaches a user-supplied PDF as a document's translation, instead of the AI
+  // translation. Stored the same way (translatedFileName → blob in IndexedDB) so
+  // preview, ZIP export and the "-P" code all work unchanged. Marked manual so the
+  // UI can tell it apart from an AI translation.
+  const attachManualTranslation = async (fileId, baseFileName, pdfFile, setDirectUploadsWithSave, setFinalResultsWithSave) => {
+    if (!pdfFile) return;
+    if (!/\.pdf$/i.test(pdfFile.name) && pdfFile.type !== 'application/pdf') {
+      alert('Prevod mora biti PDF datoteka.');
+      return;
+    }
+
+    // Name the stored translation after the document it belongs to, mirroring the
+    // AI path's "_PREVOD" convention so both are recognizable in storage.
+    const baseName = baseFileName || pdfFile.name;
+    const dot = baseName.lastIndexOf('.');
+    const translatedName = dot === -1
+      ? `${baseName}_PREVOD.pdf`
+      : `${baseName.slice(0, dot)}_PREVOD.pdf`;
+
+    try {
+      await saveFileToIndexedDB(translatedName, pdfFile);
+    } catch (error) {
+      console.error('Saving manual translation failed:', error);
+      alert('Prevoda ni bilo mogoče shraniti.');
+      return;
+    }
+
+    const apply = (file) =>
+      (file.id || file.fileName) === fileId
+        ? { ...file, translatedFileName: translatedName, translationTruncated: null, manualTranslation: true }
+        : file;
+
+    setFinalResultsWithSave(prev => prev.map(apply));
+    setDirectUploadsWithSave(prev => prev.map(apply));
+  };
+
+  // Removes a document's translation (AI or manual). The blob is left in IndexedDB;
+  // only the reference on the document is cleared.
+  const removeTranslation = (fileId, setDirectUploadsWithSave, setFinalResultsWithSave) => {
+    const clear = (file) =>
+      (file.id || file.fileName) === fileId
+        ? { ...file, translatedFileName: undefined, translationTruncated: null, manualTranslation: undefined }
+        : file;
+    setFinalResultsWithSave(prev => prev.map(clear));
+    setDirectUploadsWithSave(prev => prev.map(clear));
+  };
+
   // Opens a stored translation (a PDF Blob in IndexedDB) in a new browser tab.
   const previewTranslation = async (translatedFileName) => {
     try {
@@ -433,6 +558,7 @@ export const useFileProcessing = () => {
     handleFileUpload,
     removeFile,
     removeAllFiles,
+    pendingTranslations,
     handleDirectUploadToFolder,
     handleFolderDrop,
     startOCRProcessing,
@@ -446,5 +572,7 @@ export const useFileProcessing = () => {
     setShowTranslationModal,
     translateDocuments,
     previewTranslation,
+    attachManualTranslation,
+    removeTranslation,
   };
 };

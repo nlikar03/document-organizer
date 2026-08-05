@@ -1,6 +1,7 @@
 import React from 'react';
-import { Upload, Edit2, Plus, Trash2, ChevronRight, ChevronDown, FileText, Loader2, ArrowUp, ArrowDown, User, Calendar, Hash, Brain, Languages, Eye } from 'lucide-react';
+import { Upload, Edit2, Plus, Trash2, ChevronRight, ChevronDown, FileText, Loader2, ArrowUp, ArrowDown, User, Calendar, Hash, Brain, Languages, Eye, X } from 'lucide-react';
 import { ContextMenu } from './ContextMenu';
+import { sortByExplicitIndex } from './documentUtils';
 
 const countFilesInFolderTree = (folderId, allFiles) => {
   return allFiles.filter(f => {
@@ -9,27 +10,46 @@ const countFilesInFolderTree = (folderId, allFiles) => {
   }).length;
 };
 
-export const FolderTreeStep1 = ({ 
-  folders, 
-  directUploads, 
-  editingId, 
-  editingName, 
-  setEditingName, 
-  toggleFolder, 
-  startEdit, 
-  saveEdit, 
-  addFolder, 
+export const FolderTreeStep1 = ({
+  folders,
+  directUploads,
+  finalResults = [],
+  editingId,
+  editingName,
+  setEditingName,
+  toggleFolder,
+  startEdit,
+  saveEdit,
+  addFolder,
   deleteFolder,
   moveFolderUp,
   moveFolderDown,
   openUploadModal,
   openFolderFiles,
-  removeDirectUpload,
+  removeFile,
+  moveReviewFileUp,
+  moveReviewFileDown,
   handleDirectUploadToFolder,
   handleFolderDrop,
 }) => {
   const [dragOverFolderId, setDragOverFolderId] = React.useState(null);
   const [uploadingFolderId, setUploadingFolderId] = React.useState(null);
+
+  // Step 1 shows manual uploads *and* AI-classified files, so a file that has
+  // been through classification stays visible here. AI results carry their
+  // folder as suggestedFolder; manual uploads carry folderId.
+  const allFiles = React.useMemo(() => {
+    const byKey = new Map();
+    finalResults.forEach(f => byKey.set(f.id || f.fileName, f));
+    directUploads.forEach(f => {
+      const key = f.id || f.fileName;
+      if (!byKey.has(key)) byKey.set(key, f);
+    });
+    // sortIndex is what manual reordering / alphabetical sort write.
+    return sortByExplicitIndex(Array.from(byKey.values()));
+  }, [finalResults, directUploads]);
+
+  const fileFolderId = (f) => f.suggestedFolder?.id || f.folderId;
 
   const handleDragOver = (e, folderId) => {
     e.preventDefault();
@@ -87,8 +107,8 @@ export const FolderTreeStep1 = ({
       f.id.startsWith(folder.id + '.') && f.id.split('.').length === folder.id.split('.').length + 1
     );
     
-    const folderFiles = directUploads.filter(f => f.folderId === folder.id);
-    const totalFileCount = countFilesInFolderTree(folder.id, directUploads);
+    const folderFiles = allFiles.filter(f => fileFolderId(f) === folder.id);
+    const totalFileCount = countFilesInFolderTree(folder.id, allFiles);
     const isDraggingOver = dragOverFolderId === folder.id;
     const isUploading = uploadingFolderId === folder.id;
 
@@ -155,24 +175,53 @@ export const FolderTreeStep1 = ({
         
         {folder.expanded && folderFiles.length > 0 && (
           <div className="ml-6 mt-1 space-y-1">
-            {folderFiles.map((file) => (
-              <div 
-                key={file.id}
-                className="flex items-center gap-2 p-2 bg-white border border-gray-200 rounded hover:border-indigo-300 transition-colors group"
-              >
-                <FileText size={16} className="text-blue-600 flex-shrink-0" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-800 truncate">{file.fileName}</p>
-                </div>
-                <button
-                  onClick={() => removeDirectUpload(file.id)}
-                  className="p-1 hover:bg-red-100 rounded transition-colors opacity-0 group-hover:opacity-100"
-                  title="Odstrani"
+            {folderFiles.map((file, fileIndex) => {
+              const fileId = file.id || file.fileName;
+              const isAIClassified = Boolean(file.suggestedFolder) && !file.isDirectUpload;
+              return (
+                <div
+                  key={fileId}
+                  className="flex items-center gap-2 p-2 bg-white border border-gray-200 rounded hover:border-indigo-300 transition-colors group"
                 >
-                  <Trash2 size={14} className="text-red-600" />
-                </button>
-              </div>
-            ))}
+                  <FileText size={16} className="text-blue-600 flex-shrink-0" />
+                  <div className="flex-1 min-w-0 flex items-center gap-2">
+                    <p className="text-sm font-medium text-gray-800 truncate">{file.fileName}</p>
+                    {isAIClassified && (
+                      <span className="flex items-center gap-1 px-2 py-0.5 bg-purple-100 text-purple-700 rounded text-xs font-semibold flex-shrink-0">
+                        <Brain size={12} />
+                        AI
+                      </span>
+                    )}
+                  </div>
+                  <ContextMenu
+                    items={[
+                      {
+                        label: 'Premakni gor',
+                        icon: <ArrowUp size={14} />,
+                        keepOpen: true,
+                        disabled: fileIndex === 0,
+                        onClick: () => moveReviewFileUp?.(fileId),
+                      },
+                      {
+                        label: 'Premakni dol',
+                        icon: <ArrowDown size={14} />,
+                        keepOpen: true,
+                        disabled: fileIndex === folderFiles.length - 1,
+                        onClick: () => moveReviewFileDown?.(fileId),
+                      },
+                      {
+                        label: 'Odstrani',
+                        icon: <Trash2 size={14} />,
+                        danger: true,
+                        onClick: () => {
+                          if (window.confirm(`Odstrani "${file.fileName}"?`)) removeFile(fileId);
+                        },
+                      },
+                    ]}
+                  />
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -196,6 +245,9 @@ export const FolderTreeStep5 = ({
   removeFilesFromReview,
   showAITitles,
   onPreviewTranslation,
+  onAttachTranslation,
+  onRemoveTranslation,
+  onAiTranslate,
 }) => {
   // Build the deduplicated file list once for the whole tree
   const reviewFileMap = new Map();
@@ -346,33 +398,75 @@ export const FolderTreeStep5 = ({
                   />
                 </div>
 
-                {file.translatedFileName && (
-                  <button
-                    onClick={() => onPreviewTranslation?.(file.translatedFileName)}
-                    className="ml-8 flex items-center gap-2 w-[calc(100%-2rem)] p-2 bg-green-50 border border-green-200 border-t-0 rounded-b hover:bg-green-100 hover:border-green-300 transition-colors text-left group"
-                    title="Predogled prevoda"
-                  >
-                    <Languages size={15} className="text-green-600 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-green-800 truncate">
-                        Slovenski prevod
-                      </p>
-                      {file.translationTruncated && (
-                        <p className="text-xs text-amber-700">
-                          ⚠ Skrajšano na {file.translationTruncated.translatedPages} od {file.translationTruncated.originalPages} strani
-                        </p>
-                      )}
-                    </div>
-                    {file.docCode && (
-                      <span className="font-mono font-bold text-green-700 text-sm flex-shrink-0">
-                        {file.docCode}-P
-                      </span>
-                    )}
-                    <span className="flex items-center gap-1 px-2 py-1 bg-green-600 text-white rounded text-xs font-semibold flex-shrink-0 group-hover:bg-green-700 transition-colors">
-                      <Eye size={13} />
-                      Predogled
+                {/* Foreign-language document without a translation yet: let the user
+                    either upload their own translated PDF or run the AI translation. */}
+                {file.language && file.language !== 'sl' && !file.translatedFileName && (
+                  <div className="ml-8 flex items-center gap-2 w-[calc(100%-2rem)] p-2 bg-amber-50 border border-amber-200 border-t-0 rounded-b">
+                    <Languages size={15} className="text-amber-600 flex-shrink-0" />
+                    <span className="text-sm text-amber-800 flex-1 min-w-0 truncate">
+                      Tuj jezik ({file.language.toUpperCase()}) — dodaj slovenski prevod:
                     </span>
-                  </button>
+                    <label className="flex items-center gap-1 px-2 py-1 bg-white border border-amber-300 text-amber-800 rounded text-xs font-semibold flex-shrink-0 cursor-pointer hover:bg-amber-100 transition-colors">
+                      <Upload size={13} />
+                      Naloži prevod
+                      <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        className="hidden"
+                        onChange={(e) => {
+                          const pdf = e.target.files?.[0];
+                          e.target.value = '';
+                          if (pdf) onAttachTranslation?.(fileId, pdf);
+                        }}
+                      />
+                    </label>
+                    <button
+                      onClick={() => onAiTranslate?.([file])}
+                      className="flex items-center gap-1 px-2 py-1 bg-indigo-600 text-white rounded text-xs font-semibold flex-shrink-0 hover:bg-indigo-700 transition-colors"
+                      title="Samodejni AI prevod"
+                    >
+                      <Brain size={13} />
+                      AI prevod
+                    </button>
+                  </div>
+                )}
+
+                {file.translatedFileName && (
+                  <div className="ml-8 flex items-center gap-2 w-[calc(100%-2rem)] p-2 bg-green-50 border border-green-200 border-t-0 rounded-b">
+                    <button
+                      onClick={() => onPreviewTranslation?.(file.translatedFileName)}
+                      className="flex items-center gap-2 flex-1 min-w-0 text-left group"
+                      title="Predogled prevoda"
+                    >
+                      <Languages size={15} className="text-green-600 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-green-800 truncate">
+                          Slovenski prevod {file.manualTranslation ? '(naložen)' : '(AI)'}
+                        </p>
+                        {file.translationTruncated && (
+                          <p className="text-xs text-amber-700">
+                            ⚠ Skrajšano na {file.translationTruncated.translatedPages} od {file.translationTruncated.originalPages} strani
+                          </p>
+                        )}
+                      </div>
+                      {file.docCode && (
+                        <span className="font-mono font-bold text-green-700 text-sm flex-shrink-0">
+                          {file.docCode}-P
+                        </span>
+                      )}
+                      <span className="flex items-center gap-1 px-2 py-1 bg-green-600 text-white rounded text-xs font-semibold flex-shrink-0 group-hover:bg-green-700 transition-colors">
+                        <Eye size={13} />
+                        Predogled
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => onRemoveTranslation?.(fileId)}
+                      className="p-1 text-green-700 hover:text-red-600 hover:bg-red-50 rounded flex-shrink-0"
+                      title="Odstrani prevod"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
                 )}
                 </div>
               );

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { defaultStructure } from './documentUtils';
+import { defaultStructure, sortByExplicitIndex } from './documentUtils';
 import { useFolderState } from './useFolderState';
 import { useFileProcessing } from './useFileProcessing';
 import { downloadZipClientSide, downloadMergedPDF, downloadExcelClientSide } from './clientDownloads';
@@ -212,6 +212,126 @@ export const useDocumentState = () => {
     }
   };
 
+  // ── Review-file ordering (step 1) ──────────────────────────────────────────
+  // Step 1 lists both AI-classified files (finalResults, folder via suggestedFolder)
+  // and manual uploads (directUploads, folder via folderId). The two live in
+  // separate arrays, so ordering has to be applied to whichever array holds the
+  // file — but the *visible* order interleaves them, so neighbours are resolved
+  // from the merged per-folder view rather than from either array alone.
+
+  const fileFolderId = (f) => f.suggestedFolder?.id || f.folderId || '';
+
+  // Files as step 1 renders them: AI results first, then manual uploads that
+  // aren't already represented there (same dedup rule as the tree component),
+  // then reordered by any explicit sortIndex so this matches what the user sees.
+  const mergedReviewFiles = () => {
+    const seen = new Map();
+    finalResults.forEach(f => seen.set(f.id || f.fileName, { file: f, source: 'final' }));
+    directUploads.forEach(f => {
+      const key = f.id || f.fileName;
+      if (!seen.has(key)) seen.set(key, { file: f, source: 'direct' });
+    });
+    return sortByExplicitIndex(Array.from(seen.values()), e => e.file);
+  };
+
+  // Applies per-folder orderings by stamping an explicit `sortIndex` on each
+  // file. Array position can't express the order on its own: a folder's files
+  // are split across finalResults and directUploads, and a file's array is its
+  // identity (AI-classified vs manual), so files must not migrate between them.
+  // The tree sorts by sortIndex, which both arrays share.
+  // `ordersByFolder` maps folderId -> ordered file keys; every folder is passed
+  // at once, since applying them one at a time would read stale state between calls.
+  const applyFolderOrders = (ordersByFolder) => {
+    const rank = new Map();
+    ordersByFolder.forEach((ids) => {
+      ids.forEach((id, i) => rank.set(id, i));
+    });
+
+    const stamp = (arr) => {
+      let touched = false;
+      const next = arr.map(f => {
+        const key = f.id || f.fileName;
+        if (!rank.has(key) || f.sortIndex === rank.get(key)) return f;
+        touched = true;
+        return { ...f, sortIndex: rank.get(key) };
+      });
+      return touched ? next : arr;
+    };
+
+    const nextFinal = stamp(finalResults);
+    const nextDirect = stamp(directUploads);
+    if (nextFinal !== finalResults) setFinalResultsWithSave(nextFinal);
+    if (nextDirect !== directUploads) setDirectUploadsWithSave(nextDirect);
+  };
+
+  const moveReviewFileBy = (fileId, offset) => {
+    const merged = mergedReviewFiles();
+    const entry = merged.find(({ file }) => (file.id || file.fileName) === fileId);
+    if (!entry) return;
+
+    const folderId = fileFolderId(entry.file);
+    const siblings = merged
+      .filter(({ file }) => fileFolderId(file) === folderId)
+      .map(({ file }) => file.id || file.fileName);
+
+    const pos = siblings.indexOf(fileId);
+    const target = pos + offset;
+    if (pos === -1 || target < 0 || target >= siblings.length) return;
+
+    const reordered = [...siblings];
+    [reordered[pos], reordered[target]] = [reordered[target], reordered[pos]];
+    applyFolderOrders(new Map([[folderId, reordered]]));
+  };
+
+  const moveReviewFileUp = (fileId) => moveReviewFileBy(fileId, -1);
+  const moveReviewFileDown = (fileId) => moveReviewFileBy(fileId, 1);
+
+  // ── Alphabetical sort + undo (step 1) ──────────────────────────────────────
+  // One level of undo: the pre-sort order is kept in memory only, so a page
+  // reload drops it (by then the sorted order is the persisted truth anyway).
+
+  const [reviewOrderUndo, setReviewOrderUndo] = useState(null);
+
+  const sortReviewFilesAlphabetically = () => {
+    const merged = mergedReviewFiles();
+    if (merged.length === 0) return;
+
+    const byFolder = new Map();
+    merged.forEach(({ file }) => {
+      const key = fileFolderId(file);
+      if (!byFolder.has(key)) byFolder.set(key, []);
+      byFolder.get(key).push(file);
+    });
+
+    const before = { finalResults, directUploads };
+    const orders = new Map();
+    let changed = false;
+
+    // Sort each folder independently, then push every folder's order at once.
+    byFolder.forEach((group, folderId) => {
+      const sorted = [...group].sort((a, b) =>
+        (a.fileName || '').localeCompare(b.fileName || '', 'sl-SI', {
+          numeric: true,
+          sensitivity: 'base',
+        })
+      );
+      if (sorted.every((f, i) => f === group[i])) return;
+      changed = true;
+      orders.set(folderId, sorted.map(f => f.id || f.fileName));
+    });
+
+    if (!changed) return;
+    applyFolderOrders(orders);
+    setReviewOrderUndo(before);
+  };
+
+  const undoSortReviewFiles = () => {
+    if (!reviewOrderUndo) return;
+    setFinalResultsWithSave(reviewOrderUndo.finalResults);
+    setDirectUploadsWithSave(reviewOrderUndo.directUploads);
+    setReviewOrderUndo(null);
+  };
+
   // ── Code generation helpers ────────────────────────────────────────────────
 
   const buildSortedFileList = () => {
@@ -415,6 +535,16 @@ export const useDocumentState = () => {
   const translateDocuments = (documents) =>
     fileProcessing.translateDocuments(documents, setDirectUploadsWithSave, setFinalResultsWithSave);
 
+  const attachManualTranslation = (fileId, pdfFile) => {
+    const target = [...finalResults, ...directUploads].find(f => (f.id || f.fileName) === fileId);
+    return fileProcessing.attachManualTranslation(
+      fileId, target?.fileName, pdfFile, setDirectUploadsWithSave, setFinalResultsWithSave
+    );
+  };
+
+  const removeTranslation = (fileId) =>
+    fileProcessing.removeTranslation(fileId, setDirectUploadsWithSave, setFinalResultsWithSave);
+
   // Re-runs the previously chosen numbering method, so files added after the first
   // pass get codes too, without re-prompting.
   const regenerateCodes = () => {
@@ -553,6 +683,7 @@ export const useDocumentState = () => {
     handleFileUpload: (e) => fileProcessing.handleFileUpload(e, processedFiles),
     removeFile: fileProcessing.removeFile,
     removeAllFiles: fileProcessing.removeAllFiles,
+    pendingTranslations: fileProcessing.pendingTranslations,
     handlePasswordSubmit: fileProcessing.handlePasswordSubmit,
     openMetadataExtractionModal: fileProcessing.openMetadataExtractionModal,
     closeMetadataExtractionModal: fileProcessing.closeMetadataExtractionModal,
@@ -584,6 +715,11 @@ export const useDocumentState = () => {
     handleFolderDrop,
     removeDirectUpload,
     removeAllDirectUploads,
+    moveReviewFileUp,
+    moveReviewFileDown,
+    sortReviewFilesAlphabetically,
+    undoSortReviewFiles,
+    canUndoReviewSort: reviewOrderUndo !== null,
     startOCRProcessing,
     startAIProcessing,
     extractMetadataForSelectedFiles,
@@ -606,6 +742,8 @@ export const useDocumentState = () => {
     showTranslationModal: fileProcessing.showTranslationModal,
     setShowTranslationModal: fileProcessing.setShowTranslationModal,
     translateDocuments,
+    attachManualTranslation,
+    removeTranslation,
     previewTranslation: fileProcessing.previewTranslation,
     finalizeDocuments,
     handleDownloadMergedPDF,

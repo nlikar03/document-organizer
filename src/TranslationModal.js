@@ -1,6 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { Languages, Loader2, AlertTriangle, FileText, Info } from 'lucide-react';
+import { Languages, Loader2, AlertTriangle, FileText, Info, Upload } from 'lucide-react';
 import { TRANSLATION_MAX_PAGES } from './documentUtils';
+
+// Small "upload your own translation PDF" button, reused for both translatable and
+// scan-only documents in the list.
+const UploadTranslationButton = ({ doc, onAttachTranslation }) => (
+  <label
+    onClick={(e) => e.stopPropagation()}
+    className="flex items-center gap-1 px-2 py-1 bg-white border border-indigo-300 text-indigo-700 rounded text-xs font-semibold flex-shrink-0 cursor-pointer hover:bg-indigo-50 transition-colors"
+    title="Naloži svoj slovenski prevod (PDF)"
+  >
+    <Upload size={13} />
+    Naloži prevod
+    <input
+      type="file"
+      accept="application/pdf,.pdf"
+      className="hidden"
+      onChange={(e) => {
+        const pdf = e.target.files?.[0];
+        e.target.value = '';
+        if (pdf) onAttachTranslation?.(doc.id || doc.fileName, pdf);
+      }}
+    />
+  </label>
+);
 
 const LANGUAGE_NAMES = {
   hr: 'hrvaščina',
@@ -24,7 +47,7 @@ const languageLabel = (code) => LANGUAGE_NAMES[code] || (code || '').toUpperCase
 const isTranslatable = (doc) =>
   doc.isNativePdf && /\.pdf$/i.test(doc.fileName);
 
-export const TranslationModal = ({ isOpen, onClose, documents, isTranslating, progress, onTranslate }) => {
+export const TranslationModal = ({ isOpen, onClose, documents, isTranslating, progress, onTranslate, onAttachTranslation }) => {
   const [selectedIds, setSelectedIds] = useState(new Set());
 
   const translatable = documents.filter(isTranslatable);
@@ -151,6 +174,9 @@ export const TranslationModal = ({ isOpen, onClose, documents, isTranslating, pr
                         <span className="px-2 py-1 bg-amber-100 text-amber-700 rounded text-xs font-semibold flex-shrink-0">
                           {languageLabel(doc.language)}
                         </span>
+                        {onAttachTranslation && (
+                          <UploadTranslationButton doc={doc} onAttachTranslation={onAttachTranslation} />
+                        )}
                       </label>
                     ))}
                   </div>
@@ -162,26 +188,30 @@ export const TranslationModal = ({ isOpen, onClose, documents, isTranslating, pr
                   <div className="flex items-center gap-2 mb-2 text-gray-600">
                     <AlertTriangle size={16} className="text-gray-400" />
                     <span className="text-sm font-semibold">
-                      Ni mogoče prevesti ({notTranslatable.length})
+                      AI prevod ni mogoč ({notTranslatable.length})
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 mb-3">
-                    Skenirani dokumenti in slike nimajo besedilne plasti — prevod zanje še ni podprt.
+                    Skenirani dokumenti in slike nimajo besedilne plasti, zato jih AI ne prevede.
+                    Lahko pa naložiš svoj slovenski prevod.
                   </p>
                   <div className="space-y-2">
                     {notTranslatable.map(doc => (
                       <div
                         key={doc.id}
-                        className="flex items-center gap-3 p-3 border-2 border-gray-100 rounded-lg bg-gray-50 opacity-70"
+                        className="flex items-center gap-3 p-3 border-2 border-gray-100 rounded-lg bg-gray-50"
                       >
                         <FileText size={18} className="text-gray-300 flex-shrink-0" />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-500 truncate">{doc.fileName}</p>
-                          <p className="text-xs text-gray-400">sken — prevod ni podprt</p>
+                          <p className="text-sm font-medium text-gray-600 truncate">{doc.fileName}</p>
+                          <p className="text-xs text-gray-400">sken — AI prevod ni podprt</p>
                         </div>
                         <span className="px-2 py-1 bg-gray-200 text-gray-500 rounded text-xs font-semibold flex-shrink-0">
                           {languageLabel(doc.language)}
                         </span>
+                        {onAttachTranslation && (
+                          <UploadTranslationButton doc={doc} onAttachTranslation={onAttachTranslation} />
+                        )}
                       </div>
                     ))}
                   </div>
